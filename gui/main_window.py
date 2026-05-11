@@ -205,6 +205,13 @@ class MainWindow(QMainWindow):
         h.setContentsMargins(14, 12, 14, 12)
         h.setSpacing(8)
 
+        self._browse_btn = QPushButton("📂")
+        self._browse_btn.setToolTip("Scegli una cartella da inserire nella richiesta")
+        self._browse_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._browse_btn.setFixedWidth(40)
+        self._browse_btn.clicked.connect(self._pick_folder_into_input)
+        h.addWidget(self._browse_btn)
+
         self._input = QLineEdit()
         self._input.setObjectName("InputField")
         self._input.setPlaceholderText("Scrivi una richiesta...  (Invio per inviare)")
@@ -325,6 +332,15 @@ class MainWindow(QMainWindow):
         save_gui_config(self.cfg)
         self._folder_label.setText(self._folder_short())
         self._info(f"📂  Cartella impostata: {d}")
+
+    def _pick_folder_into_input(self) -> None:
+        """Apre un selettore cartelle e ne inserisce il percorso nel campo input."""
+        start = self._input.text().strip() or self.cfg["default_folder"]
+        d = QFileDialog.getExistingDirectory(self, "Scegli cartella", start)
+        if not d:
+            return
+        self._input.setText(d)
+        self._input.setFocus()
 
     def _open_settings(self) -> None:
         dlg = SettingsDialog(self, current=self.cfg)
