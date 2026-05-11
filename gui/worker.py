@@ -100,6 +100,10 @@ class AgentWorker(QObject):
             self.failed.emit(f"{type(exc).__name__}: {exc}")
 
     def _run_inner(self) -> None:
+        # bootstrap del package virtuale (idempotente)
+        from gui._bootstrap import install as _install_fileai
+        _install_fileai()
+
         # import locali per evitare import circolari e ritardare il caricamento
         from rich.console import Console
         from fileai import agent as agent_mod
