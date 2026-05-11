@@ -30,9 +30,10 @@ _ROOT_MODULES = {
 
 # moduli root → nome dentro fileai.backends
 _BACKEND_MODULES = {
-    "base":   "fileai.backends.base",
-    "ollama": "fileai.backends.ollama",
-    "claude": "fileai.backends.claude",
+    "base":     "fileai.backends.base",
+    "ollama":   "fileai.backends.ollama",
+    "claude":   "fileai.backends.claude",
+    "lmstudio": "fileai.backends.lmstudio",
 }
 
 # moduli root → nome dentro fileai.tools
@@ -86,10 +87,11 @@ def install(repo_root: Path | None = None) -> None:
         setattr(sys.modules["fileai"], "backends", bpkg)
 
     # backends.base prima (gli altri lo importano)
-    for fname in ("base", "ollama", "claude"):
+    for fname in ("base", "ollama", "claude", "lmstudio"):
         full = _BACKEND_MODULES[fname]
-        if full not in sys.modules:
-            _load(root / f"{fname}.py", full)
+        src  = root / f"{fname}.py"
+        if full not in sys.modules and src.exists():
+            _load(src, full)
             setattr(sys.modules["fileai.backends"], fname, sys.modules[full])
 
     # crea_backend (manca nel repo, lo aggiungiamo qui)
@@ -101,6 +103,9 @@ def install(repo_root: Path | None = None) -> None:
             if kind == "claude":
                 from fileai.backends.claude import BackendClaude
                 return BackendClaude(model)
+            if kind == "lmstudio":
+                from fileai.backends.lmstudio import BackendLMStudio
+                return BackendLMStudio(model)
             from fileai.backends.ollama import BackendOllama
             return BackendOllama(model)
         bpkg.crea_backend = crea_backend  # type: ignore[attr-defined]

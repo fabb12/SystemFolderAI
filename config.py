@@ -50,19 +50,27 @@ def parse_modello(spec: str) -> tuple[str, str]:
     """
     Parsifica la stringa modello → (backend, model_name).
 
-    "ollama"           → ("ollama", "llama3.1")
-    "ollama:qwen2.5"   → ("ollama", "qwen2.5")
-    "claude"           → ("claude", "claude-sonnet-4-20250514")
-    "claude:opus"      → ("claude", "claude-opus-4-5")
+    "ollama"               → ("ollama", "llama3.1")
+    "ollama:qwen2.5"       → ("ollama", "qwen2.5")
+    "claude"               → ("claude", "claude-sonnet-4-20250514")
+    "claude:opus"          → ("claude", "claude-opus-4-5")
+    "lmstudio"             → ("lmstudio", "")    (auto: primo disponibile)
+    "lmstudio:<model-id>"  → ("lmstudio", "<model-id>")
     """
-    spec = spec.strip().lower()
-    backend, _, model = spec.partition(":")
+    spec = spec.strip()
+    # rendiamo lowercase solo il backend, non il nome modello
+    backend_part, sep, model = spec.partition(":")
+    backend = backend_part.strip().lower()
+    model = model.strip()
 
     if backend == "claude":
-        full = CLAUDE_MODELS.get(model, model or CLAUDE_MODELS["default"])
+        full = CLAUDE_MODELS.get(model.lower(), model or CLAUDE_MODELS["default"])
         return "claude", full
 
-    return "ollama", model or "llama3.1"
+    if backend in ("lmstudio", "lm-studio", "lms"):
+        return "lmstudio", model
+
+    return "ollama", (model or "llama3.1")
 
 
 def modello_da_args(args) -> str:

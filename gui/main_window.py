@@ -291,6 +291,8 @@ class MainWindow(QMainWindow):
             os.environ["ANTHROPIC_API_KEY"] = self.cfg["claude_api_key"]
         if self.cfg.get("ollama_host"):
             os.environ["OLLAMA_HOST"] = self.cfg["ollama_host"]
+        if self.cfg.get("lmstudio_host"):
+            os.environ["LMSTUDIO_HOST"] = self.cfg["lmstudio_host"]
 
     def _apply_font_size(self, size: int) -> None:
         f = self._chat.font()
@@ -353,22 +355,38 @@ class MainWindow(QMainWindow):
             self._info(f"⚙  Impostazioni salvate · modello: {self.cfg['modello']}")
 
     def _quick_model_change(self) -> None:
-        text, ok = QInputDialog.getText(
-            self, "Cambia modello",
-            "Spec modello (es: ollama:llama3.1, claude, claude:opus):",
-            text=self.cfg["modello"],
+        from gui.settings_dialog import SettingsDialog
+        scoperti = SettingsDialog._scopri_modelli_locali(
+            self.cfg.get("ollama_host", "http://localhost:11434"),
+            self.cfg.get("lmstudio_host", "http://localhost:1234"),
         )
-        if ok and text.strip():
-            self.cfg["modello"] = text.strip()
-            from gui.settings_dialog import save_gui_config
-            save_gui_config(self.cfg)
-            self._model_pill.setText(self.cfg["modello"])
-            try:
-                from fileai.config import set_default_modello
-                set_default_modello(self.cfg["modello"])
-            except Exception:
-                pass
-            self._info(f"🤖  Modello: {self.cfg['modello']}")
+        cloud = ["claude", "claude:sonnet", "claude:opus", "claude:haiku"]
+        items = scoperti + cloud
+        # ordina mantenendo locali prima
+        seen: set[str] = set()
+        items = [m for m in items if not (m in seen or seen.add(m))]
+        if not items:
+            items = ["ollama:llama3.1", "claude", "claude:haiku"]
+
+        item, ok = QInputDialog.getItem(
+            self, "Cambia modello",
+            "Modello (locali rilevati + cloud):",
+            items,
+            current=items.index(self.cfg["modello"]) if self.cfg["modello"] in items else 0,
+            editable=True,
+        )
+        if not ok or not item.strip():
+            return
+        self.cfg["modello"] = item.strip()
+        from gui.settings_dialog import save_gui_config
+        save_gui_config(self.cfg)
+        self._model_pill.setText(self.cfg["modello"])
+        try:
+            from fileai.config import set_default_modello
+            set_default_modello(self.cfg["modello"])
+        except Exception:
+            pass
+        self._info(f"🤖  Modello: {self.cfg['modello']}")
 
     def _clear_chat(self) -> None:
         self._chat.clear()

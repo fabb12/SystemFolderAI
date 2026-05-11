@@ -21,6 +21,7 @@ GUI_CONFIG_PATH = Path.home() / ".fileai_gui.json"
 DEFAULTS = {
     "modello":          "ollama:llama3.1",
     "ollama_host":      "http://localhost:11434",
+    "lmstudio_host":    "http://localhost:1234",
     "claude_api_key":   "",
     "default_folder":   str(Path.home()),
     "max_steps":        30,
@@ -62,7 +63,26 @@ class SettingsDialog(QDialog):
         "claude:sonnet",
         "claude:opus",
         "claude:haiku",
+        "lmstudio",
     ]
+
+    @staticmethod
+    def _scopri_modelli_locali(ollama_host: str, lmstudio_host: str) -> list[str]:
+        """Cerca i modelli installati localmente su Ollama e LM Studio."""
+        trovati: list[str] = []
+        try:
+            from fileai.backends.ollama import lista_modelli_disponibili as _ol
+            for n in _ol(ollama_host):
+                trovati.append(f"ollama:{n}")
+        except Exception:
+            pass
+        try:
+            from fileai.backends.lmstudio import lista_modelli_disponibili as _lm
+            for n in _lm(lmstudio_host):
+                trovati.append(f"lmstudio:{n}")
+        except Exception:
+            pass
+        return trovati
 
     def __init__(self, parent=None, current: dict | None = None):
         super().__init__(parent)
@@ -111,14 +131,25 @@ class SettingsDialog(QDialog):
         # gruppo selettore modello
         gb = QGroupBox("Modello di default")
         f = QFormLayout(gb)
+        row = QHBoxLayout()
         self.cb_model = QComboBox()
         self.cb_model.setEditable(True)
         self.cb_model.addItems(self.MODEL_CHOICES)
         self.cb_model.setCurrentText(self._cfg["modello"])
-        f.addRow(self._label("Spec modello"), self.cb_model)
-        hint = QLabel("Es: ollama:llama3.1, claude, claude:opus")
+        row.addWidget(self.cb_model, 1)
+        self.btn_rescan = QPushButton("🔄 Rileva")
+        self.btn_rescan.setToolTip("Cerca modelli installati su Ollama e LM Studio")
+        self.btn_rescan.clicked.connect(self._rileva_modelli)
+        row.addWidget(self.btn_rescan)
+        wrap = QWidget(); wrap.setLayout(row)
+        f.addRow(self._label("Spec modello"), wrap)
+        hint = QLabel("Es: ollama:llama3.1, claude, claude:opus, lmstudio:<id>")
         hint.setObjectName("HelpText")
         f.addRow("", hint)
+        self.lbl_scoperti = QLabel("")
+        self.lbl_scoperti.setObjectName("HelpText")
+        self.lbl_scoperti.setWordWrap(True)
+        f.addRow("", self.lbl_scoperti)
         layout.addWidget(gb)
 
         # gruppo Ollama
@@ -131,6 +162,17 @@ class SettingsDialog(QDialog):
         oh.setObjectName("HelpText")
         f_o.addRow("", oh)
         layout.addWidget(gb_o)
+
+        # gruppo LM Studio
+        gb_lm = QGroupBox("LM Studio (modelli locali, API OpenAI)")
+        f_lm = QFormLayout(gb_lm)
+        self.ed_lmstudio = QLineEdit(self._cfg.get("lmstudio_host", "http://localhost:1234"))
+        self.ed_lmstudio.setPlaceholderText("http://localhost:1234")
+        f_lm.addRow(self._label("Host"), self.ed_lmstudio)
+        lh = QLabel("Avvia il server in LM Studio: Developer → Start Server")
+        lh.setObjectName("HelpText")
+        f_lm.addRow("", lh)
+        layout.addWidget(gb_lm)
 
         # gruppo Claude
         gb_c = QGroupBox("Claude API")
@@ -231,6 +273,39 @@ class SettingsDialog(QDialog):
         if d:
             self.ed_folder.setText(d)
 
+    def _rileva_modelli(self) -> None:
+        """Cerca i modelli locali e li aggiunge al combo."""
+        self.btn_rescan.setEnabled(False)
+        self.btn_rescan.setText("…")
+        try:
+            ol_host = self.ed_ollama.text().strip() or "http://localhost:11434"
+            lm_host = self.ed_lmstudio.text().strip() or "http://localhost:1234"
+            trovati = self._scopri_modelli_locali(ol_host, lm_host)
+
+            # aggiorna il combo conservando il valore corrente
+            corrente = self.cb_model.currentText()
+            esistenti = {self.cb_model.itemText(i) for i in range(self.cb_model.count())}
+            nuovi = [m for m in trovati if m not in esistenti]
+            for m in nuovi:
+                self.cb_model.addItem(m)
+            if corrente:
+                self.cb_model.setCurrentText(corrente)
+
+            if not trovati:
+                self.lbl_scoperti.setText(
+                    "Nessun modello locale rilevato.\n"
+                    "Avvia 'ollama serve' o LM Studio (Start Server) e riprova."
+                )
+            else:
+                ol_n = sum(1 for m in trovati if m.startswith("ollama:"))
+                lm_n = sum(1 for m in trovati if m.startswith("lmstudio:"))
+                self.lbl_scoperti.setText(
+                    f"Rilevati {ol_n} modelli Ollama e {lm_n} modelli LM Studio."
+                )
+        finally:
+            self.btn_rescan.setEnabled(True)
+            self.btn_rescan.setText("🔄 Rileva")
+
     def _on_reset(self) -> None:
         if QMessageBox.question(
             self, "Conferma",
@@ -241,6 +316,7 @@ class SettingsDialog(QDialog):
         # ricarico campi
         self.cb_model.setCurrentText(self._cfg["modello"])
         self.ed_ollama.setText(self._cfg["ollama_host"])
+        self.ed_lmstudio.setText(self._cfg["lmstudio_host"])
         self.ed_key.setText(self._cfg["claude_api_key"])
         self.ed_folder.setText(self._cfg["default_folder"])
         self.cb_autoconfirm.setChecked(self._cfg["auto_confirm"])
@@ -252,6 +328,7 @@ class SettingsDialog(QDialog):
         self._cfg = {
             "modello":        self.cb_model.currentText().strip() or DEFAULTS["modello"],
             "ollama_host":    self.ed_ollama.text().strip()       or DEFAULTS["ollama_host"],
+            "lmstudio_host":  self.ed_lmstudio.text().strip()     or DEFAULTS["lmstudio_host"],
             "claude_api_key": self.ed_key.text().strip(),
             "default_folder": self.ed_folder.text().strip()       or DEFAULTS["default_folder"],
             "max_steps":      int(self.sp_steps.value()),
@@ -261,10 +338,11 @@ class SettingsDialog(QDialog):
         }
         save_gui_config(self._cfg)
 
-        # propaga: env per ollama e claude, default CLI
+        # propaga: env per ollama, lmstudio e claude
         if self._cfg["claude_api_key"]:
             os.environ["ANTHROPIC_API_KEY"] = self._cfg["claude_api_key"]
         os.environ["OLLAMA_HOST"] = self._cfg["ollama_host"]
+        os.environ["LMSTUDIO_HOST"] = self._cfg["lmstudio_host"]
 
         try:
             from fileai.config import set_default_modello
