@@ -7,9 +7,24 @@ organizzare, cercare e gestire file e cartelle tramite linguaggio naturale.
 
 ```bash
 pip install ollama anthropic rich
-ollama pull llama3.1    # o qwen2.5, mistral-nemo, ecc.
-ollama serve            # avvia il server (terminale separato)
+pip install PyQt6          # opzionale, solo per la GUI
+ollama pull llama3.1       # o qwen2.5, mistral-nemo, ecc.
+ollama serve               # avvia il server (terminale separato)
 ```
+
+## GUI (PyQt6, dark mode)
+
+```bash
+python fileai_gui.py
+```
+
+Interfaccia moderna con tema dark (Tokyo Night), sidebar con azioni rapide
+(Chat, Organizza, Cerca, Analizza, Crea struttura, Salute), barra modello,
+conferma interattiva delle azioni e dialog Impostazioni completo
+(modello, host Ollama, API key Claude, cartella default, step massimi,
+auto-confirm, font size).
+
+Le preferenze GUI sono salvate in `~/.fileai_gui.json`.
 
 ## Selezione del modello — sintassi `-m`
 
