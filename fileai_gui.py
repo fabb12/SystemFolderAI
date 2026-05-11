@@ -23,11 +23,9 @@ def main() -> int:
         print("✗ PyQt6 non installato. Installa con:  pip install PyQt6")
         return 2
 
-    # assicura che i tool dell'agente siano registrati
-    try:
-        import fileai.tools  # noqa: F401
-    except Exception:
-        pass
+    # monta il package virtuale `fileai` mappando i file al root del repo
+    from gui._bootstrap import install as _install_fileai
+    _install_fileai()
 
     from gui.main_window import run
     return run()
