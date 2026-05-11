@@ -54,7 +54,7 @@ class BackendClaude(BaseBackend):
         )
         msgs = [m for m in messages if m["role"] != _SYSTEM_PROMPT_KEY]
 
-        # converti tool_results al formato Anthropic
+        # converti messaggi al formato Anthropic
         conv = []
         for m in msgs:
             if m["role"] == "tool":
@@ -66,6 +66,28 @@ class BackendClaude(BaseBackend):
                         "content":     m["content"],
                     }],
                 })
+            elif m["role"] == "assistant" and "tool_calls" in m:
+                # assistant in formato OpenAI → blocchi Anthropic
+                blocks: list[dict] = []
+                testo_msg = m.get("content") or ""
+                if testo_msg:
+                    blocks.append({"type": "text", "text": testo_msg})
+                for tc in m["tool_calls"]:
+                    fn = tc.get("function", {})
+                    args = fn.get("arguments", {})
+                    if isinstance(args, str):
+                        import json as _json
+                        try:
+                            args = _json.loads(args) if args else {}
+                        except _json.JSONDecodeError:
+                            args = {}
+                    blocks.append({
+                        "type":  "tool_use",
+                        "id":    tc.get("id", ""),
+                        "name":  fn.get("name", ""),
+                        "input": args,
+                    })
+                conv.append({"role": "assistant", "content": blocks})
             else:
                 conv.append(m)
 
@@ -88,4 +110,9 @@ class BackendClaude(BaseBackend):
                     "id": block.id,
                 })
 
-        return testo, tool_calls, {"content": testo, "tool_calls": tool_calls}
+        raw_msg = {
+            "role":       "assistant",
+            "content":    testo,
+            "tool_calls": tool_calls,
+        }
+        return testo, tool_calls, raw_msg

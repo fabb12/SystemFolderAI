@@ -227,11 +227,14 @@ def run_agente(domanda: str, backend) -> str:
             console.rule()
             return testo.strip()
 
-        # esegui tool calls
-        messages.append(
-            {"role": "assistant", "content": testo or "", "tool_calls": tool_calls}
-            if testo else raw_msg
-        )
+        # esegui tool calls — il messaggio assistant deve sempre contenere
+        # sia il testo che i tool_calls, e avere role=assistant (per i backend
+        # che ricostruiscono lo storico, es. Anthropic).
+        messages.append({
+            "role":       "assistant",
+            "content":    testo or "",
+            "tool_calls": tool_calls,
+        })
 
         for tc in tool_calls:
             nome      = tc["function"]["name"]
