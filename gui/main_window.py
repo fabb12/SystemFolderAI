@@ -29,9 +29,8 @@ QUICK_ACTIONS = [
     ("chat",      "💬", "Chat libera",      "Domanda in linguaggio naturale"),
     ("organizza", "📁", "Organizza",        "Riordina una cartella per tipo"),
     ("cerca",     "🔎", "Cerca",            "Trova file per nome o contenuto"),
-    ("info",      "📊", "Analizza",         "Rapporto completo cartella"),
-    ("crea",      "🏗",  "Crea struttura",  "Crea sottocartelle da descrizione"),
-    ("salute",    "🩺", "Salute",           "Duplicati, vuoti, temporanei"),
+    ("info",      "📊", "Analizza",         "Rapporto completo: tipi, salute, duplicati"),
+    ("contenuti", "🧠", "Capire contenuti", "Spiega di cosa trattano i documenti"),
 ]
 
 
@@ -393,8 +392,7 @@ class MainWindow(QMainWindow):
             "organizza": "Cartella da organizzare (Invio = cartella corrente)",
             "cerca":     "Cosa cerchi?  (es: 'relazione 2024')",
             "info":      "Cartella da analizzare (Invio = cartella corrente)",
-            "crea":      "Struttura: es 'Django: app templates static docs'",
-            "salute":    "Cartella da controllare (Invio = cartella corrente)",
+            "contenuti": "Cartella di cui capire i contenuti (Invio = cartella corrente)",
         }
         self._input.setPlaceholderText(prompts.get(action_id, "..."))
         self._input.setFocus()
@@ -577,17 +575,12 @@ class MainWindow(QMainWindow):
                 f"Fornisci un rapporto completo con suggerimenti."
             )
 
-        if a == "crea":
-            return (
-                f"Crea questa struttura di cartelle in '{folder}': {raw.strip()}. "
-                f"Interpreta e crea tutte le cartelle necessarie. Elenca cosa hai creato."
-            )
-
-        if a == "salute":
+        if a == "contenuti":
             target = raw.strip() or folder
             return (
-                f"Esegui controlla_salute_cartella e trova_duplicati su '{target}'. "
-                f"Riassumi spazio recuperabile e file da rivedere."
+                f"Esegui analisi_semantica_cartella su '{target}'. "
+                f"Spiega in modo chiaro di cosa trattano i documenti, "
+                f"raggruppali per argomento e suggerisci come organizzarli per tema."
             )
 
         return raw
