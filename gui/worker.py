@@ -136,5 +136,9 @@ class AgentWorker(QObject):
             risposta = agent_mod.run_agente(self._prompt, backend)
             self.finished.emit(risposta or "")
         finally:
+            try:
+                stream.flush()
+            except Exception:
+                pass
             agent_mod.console = old_console
             agent_mod._chiedi_conferma_utente = old_confirm
