@@ -8,10 +8,31 @@ dedicato che cerca il vero pacchetto saltando la directory locale.
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
 from fileai.backends.base import BaseBackend
+
+
+# ── Finestra di contesto ────────────────────────────────────────────
+
+def _num_ctx() -> int:
+    """
+    Finestra di contesto da richiedere a Ollama.
+
+    Il default di Ollama (spesso 2048/4096 token) è troppo piccolo per il
+    loop ReAct: dopo qualche tool call con output corposi (scansioni,
+    duplicati) la cronologia supera il contesto e Ollama tronca i messaggi
+    più vecchi — incluso il system prompt e la richiesta originale. Il
+    modello "si resetta" e risponde con un saluto generico.
+
+    Sovrascrivibile con la variabile d'ambiente OLLAMA_NUM_CTX.
+    """
+    try:
+        return max(4096, int(os.environ.get("OLLAMA_NUM_CTX", "8192")))
+    except (TypeError, ValueError):
+        return 8192
 
 
 # ── Loader del package reale ────────────────────────────────────────
@@ -102,6 +123,7 @@ class BackendOllama(BaseBackend):
             model=self.model,
             messages=messages,
             tools=registry.get_schema(),
+            options={"num_ctx": _num_ctx()},
         )
         msg        = response["message"] if isinstance(response, dict) else response.message
         if hasattr(msg, "model_dump"):

@@ -120,6 +120,22 @@ def _descrivi_tool(nome: str, argomenti: dict) -> str:
     return f"{icona} {verbo} — {json.dumps(argomenti, ensure_ascii=False)[:60]}"
 
 
+_MAX_TOOL_CHARS = 8000
+
+
+def _limita_output(testo: str) -> str:
+    """
+    Limita la dimensione del risultato di un tool prima di rimandarlo al
+    modello. Output enormi (scansioni, liste, duplicati) saturano la finestra
+    di contesto e causano il "reset" del modello a metà task. La UI continua
+    comunque a mostrare il risultato completo via _mostra_risultato.
+    """
+    if len(testo) <= _MAX_TOOL_CHARS:
+        return testo
+    omessi = len(testo) - _MAX_TOOL_CHARS
+    return testo[:_MAX_TOOL_CHARS] + f"\n… (output troncato: {omessi} caratteri omessi)"
+
+
 def _mostra_risultato(nome: str, risultato: str) -> None:
     """Stampa il risultato in modo compatto e colorato."""
     righe  = risultato.strip().splitlines()
@@ -236,9 +252,15 @@ def run_agente(domanda: str, backend) -> str:
             "tool_calls": tool_calls,
         })
 
-        for tc in tool_calls:
+        for idx, tc in enumerate(tool_calls):
             nome      = tc["function"]["name"]
             argomenti = tc["function"].get("arguments", {})
+
+            # id stabile e univoco, condiviso fra il messaggio assistant e il
+            # risultato del tool: i backend OpenAI-compatibili (LM Studio)
+            # rifiutano la cronologia se gli id non combaciano.
+            if not tc.get("id"):
+                tc["id"] = f"call_{step}_{idx}"
 
             console.print("[dim]│[/dim]")
             console.print(f"[dim]│[/dim]  {_descrivi_tool(nome, argomenti)}")
@@ -252,8 +274,8 @@ def run_agente(domanda: str, backend) -> str:
 
             messages.append({
                 "role":        "tool",
-                "content":     risultato,
-                "tool_use_id": tc.get("id", ""),
+                "content":     _limita_output(risultato),
+                "tool_use_id": tc["id"],
             })
 
         if step > 30:

@@ -5,6 +5,7 @@ gui/main_window.py — Finestra principale FileAI GUI
 from __future__ import annotations
 
 import os
+import re
 from html import escape
 from pathlib import Path
 
@@ -32,6 +33,81 @@ QUICK_ACTIONS = [
     ("crea",      "🏗",  "Crea struttura",  "Crea sottocartelle da descrizione"),
     ("salute",    "🩺", "Salute",           "Duplicati, vuoti, temporanei"),
 ]
+
+
+# ── Markdown → HTML ───────────────────────────────────────────────
+
+_MD_HEAD_RE   = re.compile(r"^(#{1,6})\s+(.*)$")
+_MD_BULLET_RE = re.compile(r"^[-*+]\s+(.*)$")
+_MD_NUM_RE    = re.compile(r"^\d+[.)]\s+(.*)$")
+
+
+def _md_inline(s: str) -> str:
+    """Converte gli elementi inline del Markdown (su testo già escapato)."""
+    s = re.sub(r"`([^`]+)`",
+               r"<code style='background:#00000040; padding:1px 4px; "
+               r"border-radius:3px;'>\1</code>", s)
+    s = re.sub(r"\*\*([^*]+)\*\*", r"<b>\1</b>", s)
+    s = re.sub(r"__([^_]+)__",     r"<b>\1</b>", s)
+    s = re.sub(r"(?<!\*)\*([^*\s][^*]*)\*(?!\*)", r"<i>\1</i>", s)
+    return s
+
+
+def _md_to_html(text: str) -> str:
+    """
+    Converte un sottoinsieme di Markdown in HTML per la chat: intestazioni,
+    grassetto, corsivo, codice inline ed elenchi puntati/numerati.
+    Le risposte dell'agente sono in Markdown e prima venivano mostrate come
+    testo grezzo (## e ** visibili).
+    """
+    out: list[str] = []
+    list_tag: str | None = None
+
+    def chiudi_lista() -> None:
+        nonlocal list_tag
+        if list_tag:
+            out.append(f"</{list_tag}>")
+            list_tag = None
+
+    for raw in text.split("\n"):
+        line = raw.strip()
+        if not line:
+            chiudi_lista()
+            continue
+
+        m = _MD_HEAD_RE.match(line)
+        if m:
+            chiudi_lista()
+            size = {1: "16px", 2: "15px", 3: "14px"}.get(len(m.group(1)), "13px")
+            out.append(
+                f"<div style='font-weight:700; font-size:{size}; "
+                f"margin:8px 0 2px;'>{_md_inline(escape(m.group(2)))}</div>"
+            )
+            continue
+
+        m = _MD_BULLET_RE.match(line)
+        if m:
+            if list_tag != "ul":
+                chiudi_lista()
+                out.append("<ul style='margin:2px 0 2px 6px;'>")
+                list_tag = "ul"
+            out.append(f"<li>{_md_inline(escape(m.group(1)))}</li>")
+            continue
+
+        m = _MD_NUM_RE.match(line)
+        if m:
+            if list_tag != "ol":
+                chiudi_lista()
+                out.append("<ol style='margin:2px 0 2px 6px;'>")
+                list_tag = "ol"
+            out.append(f"<li>{_md_inline(escape(m.group(1)))}</li>")
+            continue
+
+        chiudi_lista()
+        out.append(f"<div>{_md_inline(escape(line))}</div>")
+
+    chiudi_lista()
+    return "".join(out)
 
 
 class MainWindow(QMainWindow):
@@ -463,8 +539,8 @@ class MainWindow(QMainWindow):
             f"border-radius: 4px;'>"
             f"<div style='color:{c['success']}; font-weight:700; margin-bottom:4px;'>"
             f"✓ Risposta</div>"
-            f"<div style='color:{c['text']}; white-space: pre-wrap;'>"
-            f"{escape(text)}</div></div>"
+            f"<div style='color:{c['text']};'>"
+            f"{_md_to_html(text)}</div></div>"
         )
 
     # ── Send / agent loop ──────────────────────────────────
@@ -560,8 +636,10 @@ class MainWindow(QMainWindow):
         self._thread.start()
 
     def _on_finished(self, risposta: str) -> None:
-        if risposta:
+        if risposta and risposta.strip():
             self._agent_final(risposta)
+        else:
+            self._info("L'agente ha terminato senza una risposta testuale.")
         self._status_label.setText("Pronto")
 
     def _on_failed(self, err: str) -> None:
@@ -607,8 +685,8 @@ class MainWindow(QMainWindow):
             f"border-radius: 4px;'>"
             f"<div style='color:{c['warning']}; font-weight:700; margin-bottom:6px;'>"
             f"⏸ L'agente attende conferma</div>"
-            f"<div style='color:{c['text']}; white-space: pre-wrap;'>"
-            f"{escape(plan_text)}</div></div>"
+            f"<div style='color:{c['text']};'>"
+            f"{_md_to_html(plan_text)}</div></div>"
         )
 
         # autoconfirm
