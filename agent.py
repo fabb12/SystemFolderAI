@@ -2,6 +2,7 @@
 agent.py — Loop ReAct con conferma interattiva
 """
 
+import os
 from pathlib import Path
 from rich.console import Console
 from rich.panel import Panel
@@ -9,6 +10,19 @@ from rich.panel import Panel
 from fileai.registry import registry
 
 console = Console()
+
+
+def _env_int(name: str, default: int, minimum: int = 1) -> int:
+    try:
+        return max(minimum, int(os.environ.get(name, default)))
+    except (TypeError, ValueError):
+        return default
+
+
+# Limiti runtime — alzati per supportare operazioni lunghe (organizzazione di
+# cartelle con centinaia di file) senza che l'agente si blocchi a metà task.
+MAX_STEPS      = _env_int("FILEAI_MAX_STEPS", 60, minimum=5)
+MAX_TOOL_CHARS = _env_int("FILEAI_MAX_TOOL_CHARS", 24000, minimum=1000)
 
 SYSTEM_PROMPT = """Sei FileAI, un assistente specializzato nell'organizzazione intelligente di file e cartelle.
 
@@ -37,6 +51,11 @@ Azioni (richiedono conferma):
   copia_file            → copia
   elimina_file          → elimina (richiede conferma=true)
 
+Archivi e backup:
+  comprime_zip      → comprime file o cartella in archivio .zip
+  estrai_archivio   → estrae .zip / .tar / .tar.gz / .tgz
+  crea_backup       → backup datato di una cartella (zip o copia)
+
 PROCEDURA per organizzare:
 1. scansione_intelligente → vedi tipo reale
 2. (opzionale) analisi_semantica_cartella → capisci il contenuto
@@ -64,11 +83,13 @@ _SEGNALI_CONFERMA = [
 _OPS_MODIFICANTI = {
     "crea_cartella", "sposta_file", "sposta_per_estensione",
     "copia_file", "rinomina_file", "elimina_file",
+    "comprime_zip", "estrai_archivio", "crea_backup",
 }
 
 _OPS_SCRITTURA = {
     "crea_cartella", "rinomina_file", "elimina_file",
     "sposta_file", "copia_file", "sposta_per_estensione",
+    "comprime_zip", "estrai_archivio", "crea_backup",
 }
 
 
@@ -120,9 +141,6 @@ def _descrivi_tool(nome: str, argomenti: dict) -> str:
     return f"{icona} {verbo} — {json.dumps(argomenti, ensure_ascii=False)[:60]}"
 
 
-_MAX_TOOL_CHARS = 8000
-
-
 def _limita_output(testo: str) -> str:
     """
     Limita la dimensione del risultato di un tool prima di rimandarlo al
@@ -130,10 +148,10 @@ def _limita_output(testo: str) -> str:
     di contesto e causano il "reset" del modello a metà task. La UI continua
     comunque a mostrare il risultato completo via _mostra_risultato.
     """
-    if len(testo) <= _MAX_TOOL_CHARS:
+    if len(testo) <= MAX_TOOL_CHARS:
         return testo
-    omessi = len(testo) - _MAX_TOOL_CHARS
-    return testo[:_MAX_TOOL_CHARS] + f"\n… (output troncato: {omessi} caratteri omessi)"
+    omessi = len(testo) - MAX_TOOL_CHARS
+    return testo[:MAX_TOOL_CHARS] + f"\n… (output troncato: {omessi} caratteri omessi)"
 
 
 def _mostra_risultato(nome: str, risultato: str) -> None:
@@ -278,8 +296,9 @@ def run_agente(domanda: str, backend) -> str:
                 "tool_use_id": tc["id"],
             })
 
-        if step > 30:
-            console.print("\n[yellow]⚠️  Limite 30 step raggiunto[/yellow]")
+        if step >= MAX_STEPS:
+            console.print(f"\n[yellow]⚠️  Limite {MAX_STEPS} step raggiunto[/yellow]")
+            console.print("[dim]Aumenta con FILEAI_MAX_STEPS o nelle Impostazioni.[/dim]")
             break
 
     console.rule()

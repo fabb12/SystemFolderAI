@@ -244,8 +244,6 @@ ESEMPI:
   fileai chiedi "trova tutti i PDF più grandi di 10MB in ~/Documenti"
         """,
     )
-    parser.add_argument("--verbose", "-v", action="store_true", help=argparse.SUPPRESS)
-
     sub = parser.add_subparsers(dest="cmd", metavar="COMANDO")
     sub.required = True
 
@@ -311,10 +309,11 @@ ESEMPI:
     try:
         backend = crea_backend(spec)
         console.print(f"[dim]🤖 {backend}[/dim]")
-    except SystemExit:
-        raise
     except Exception as e:
-        console.print(f"[red]Errore backend '{spec}': {e}[/red]")
+        console.print(Panel(
+            f"[red]Impossibile inizializzare il modello '{spec}'[/red]\n\n{e}",
+            border_style="red",
+        ))
         sys.exit(1)
 
     args.func(args, backend)

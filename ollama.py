@@ -9,7 +9,6 @@ dedicato che cerca il vero pacchetto saltando la directory locale.
 from __future__ import annotations
 
 import os
-import sys
 from pathlib import Path
 
 from fileai.backends.base import BaseBackend
@@ -28,11 +27,14 @@ def _num_ctx() -> int:
     modello "si resetta" e risponde con un saluto generico.
 
     Sovrascrivibile con la variabile d'ambiente OLLAMA_NUM_CTX.
+    Default 32768: copre task lunghi (organizzazione di centinaia di file)
+    senza che la cronologia ReAct venga troncata. Modelli piccoli (<7B) o
+    macchine con poca RAM possono abbassare il valore.
     """
     try:
-        return max(4096, int(os.environ.get("OLLAMA_NUM_CTX", "8192")))
+        return max(4096, int(os.environ.get("OLLAMA_NUM_CTX", "32768")))
     except (TypeError, ValueError):
-        return 8192
+        return 32768
 
 
 # ── Loader del package reale ────────────────────────────────────────
@@ -110,8 +112,10 @@ class BackendOllama(BaseBackend):
         try:
             self._ollama = _load_real_ollama()
         except ImportError as e:
-            print(f"Errore: {e}")
-            sys.exit(1)
+            raise RuntimeError(
+                f"{e}\nInstalla con: pip install ollama\n"
+                "e avvia il server: ollama serve"
+            ) from e
         self.model = model
 
     def __str__(self) -> str:
@@ -119,12 +123,21 @@ class BackendOllama(BaseBackend):
 
     def chat(self, messages: list[dict]) -> tuple[str, list, dict]:
         from fileai.registry import registry
-        response   = self._ollama.chat(
-            model=self.model,
-            messages=messages,
-            tools=registry.get_schema(),
-            options={"num_ctx": _num_ctx()},
-        )
+        try:
+            response = self._ollama.chat(
+                model=self.model,
+                messages=messages,
+                tools=registry.get_schema(),
+                options={"num_ctx": _num_ctx()},
+            )
+        except ConnectionError as e:
+            raise RuntimeError(
+                "Impossibile contattare Ollama. Verifica che il server sia avviato:\n"
+                "  ollama serve"
+            ) from e
+        except Exception as e:
+            # rilanciato come RuntimeError per essere mostrato nella GUI
+            raise RuntimeError(f"Errore Ollama: {e}") from e
         msg        = response["message"] if isinstance(response, dict) else response.message
         if hasattr(msg, "model_dump"):
             msg = msg.model_dump()

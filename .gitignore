@@ -8,3 +8,10 @@ venv/
 .ruff_cache/
 *.swp
 .DS_Store
+
+# Config locali (NON committare)
+.claude/settings.local.json
+
+# Artefatti dell'app
+*.bak
+*_backup_*.zip

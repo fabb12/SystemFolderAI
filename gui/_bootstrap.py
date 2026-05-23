@@ -38,10 +38,11 @@ _BACKEND_MODULES = {
 
 # moduli root → nome dentro fileai.tools
 _TOOL_MODULES = {
-    "filesystem": "fileai.tools.filesystem",
-    "analysis":   "fileai.tools.analysis",
-    "semantic":   "fileai.tools.semantic",
-    "health":     "fileai.tools.health",
+    "filesystem":  "fileai.tools.filesystem",
+    "analysis":    "fileai.tools.analysis",
+    "semantic":    "fileai.tools.semantic",
+    "health":      "fileai.tools.health",
+    "compression": "fileai.tools.compression",
 }
 
 

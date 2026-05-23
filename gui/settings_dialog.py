@@ -24,10 +24,13 @@ DEFAULTS = {
     "lmstudio_host":    "http://localhost:1234",
     "claude_api_key":   "",
     "default_folder":   str(Path.home()),
-    "max_steps":        30,
-    "verbose":          False,
+    "max_steps":        60,
     "auto_confirm":     False,
     "font_size":        13,
+    "ollama_num_ctx":   32768,
+    "claude_max_tokens": 8192,
+    "lmstudio_max_tokens": 8192,
+    "max_tool_chars":   24000,
 }
 
 
@@ -212,9 +215,6 @@ class SettingsDialog(QDialog):
         self.cb_autoconfirm = QCheckBox("Conferma automatica delle azioni (sconsigliato)")
         self.cb_autoconfirm.setChecked(self._cfg["auto_confirm"])
         f_a.addRow("", self.cb_autoconfirm)
-        self.cb_verbose = QCheckBox("Modalità verbose (mostra ogni step)")
-        self.cb_verbose.setChecked(self._cfg["verbose"])
-        f_a.addRow("", self.cb_verbose)
         layout.addWidget(gb_a)
 
         layout.addStretch(1)
@@ -229,13 +229,58 @@ class SettingsDialog(QDialog):
         gb = QGroupBox("Esecuzione agente")
         f = QFormLayout(gb)
         self.sp_steps = QSpinBox()
-        self.sp_steps.setRange(5, 200)
+        self.sp_steps.setRange(5, 500)
         self.sp_steps.setValue(self._cfg["max_steps"])
         f.addRow(self._label("Step massimi"), self.sp_steps)
-        sh = QLabel("Limite di iterazioni del loop ReAct (default 30)")
+        sh = QLabel("Iterazioni massime del loop ReAct (default 60). "
+                    "Aumenta per task lunghi.")
         sh.setObjectName("HelpText")
+        sh.setWordWrap(True)
         f.addRow("", sh)
+
+        self.sp_tool_chars = QSpinBox()
+        self.sp_tool_chars.setRange(2000, 200000)
+        self.sp_tool_chars.setSingleStep(1000)
+        self.sp_tool_chars.setValue(self._cfg["max_tool_chars"])
+        self.sp_tool_chars.setSuffix("  caratteri")
+        f.addRow(self._label("Output max per tool"), self.sp_tool_chars)
+        th = QLabel("Tronca i risultati dei tool prima di rimandarli al modello "
+                    "(default 24000). Più alto = più contesto = task lunghi più stabili.")
+        th.setObjectName("HelpText")
+        th.setWordWrap(True)
+        f.addRow("", th)
         layout.addWidget(gb)
+
+        gb_tk = QGroupBox("Finestra di contesto / token")
+        f_tk = QFormLayout(gb_tk)
+
+        self.sp_ollama_ctx = QSpinBox()
+        self.sp_ollama_ctx.setRange(4096, 131072)
+        self.sp_ollama_ctx.setSingleStep(2048)
+        self.sp_ollama_ctx.setValue(self._cfg["ollama_num_ctx"])
+        self.sp_ollama_ctx.setSuffix("  token")
+        f_tk.addRow(self._label("Ollama num_ctx"), self.sp_ollama_ctx)
+
+        self.sp_claude_tok = QSpinBox()
+        self.sp_claude_tok.setRange(1024, 64000)
+        self.sp_claude_tok.setSingleStep(512)
+        self.sp_claude_tok.setValue(self._cfg["claude_max_tokens"])
+        self.sp_claude_tok.setSuffix("  token")
+        f_tk.addRow(self._label("Claude max_tokens"), self.sp_claude_tok)
+
+        self.sp_lmstudio_tok = QSpinBox()
+        self.sp_lmstudio_tok.setRange(512, 64000)
+        self.sp_lmstudio_tok.setSingleStep(512)
+        self.sp_lmstudio_tok.setValue(self._cfg["lmstudio_max_tokens"])
+        self.sp_lmstudio_tok.setSuffix("  token")
+        f_tk.addRow(self._label("LM Studio max_tokens"), self.sp_lmstudio_tok)
+
+        h = QLabel("Aumenta la finestra se task lunghi vengono troncati. "
+                   "I modelli locali piccoli o con poca RAM richiedono valori più bassi.")
+        h.setObjectName("HelpText")
+        h.setWordWrap(True)
+        f_tk.addRow("", h)
+        layout.addWidget(gb_tk)
 
         gb_ui = QGroupBox("Interfaccia")
         f_ui = QFormLayout(gb_ui)
@@ -320,29 +365,40 @@ class SettingsDialog(QDialog):
         self.ed_key.setText(self._cfg["claude_api_key"])
         self.ed_folder.setText(self._cfg["default_folder"])
         self.cb_autoconfirm.setChecked(self._cfg["auto_confirm"])
-        self.cb_verbose.setChecked(self._cfg["verbose"])
         self.sp_steps.setValue(self._cfg["max_steps"])
+        self.sp_tool_chars.setValue(self._cfg["max_tool_chars"])
+        self.sp_ollama_ctx.setValue(self._cfg["ollama_num_ctx"])
+        self.sp_claude_tok.setValue(self._cfg["claude_max_tokens"])
+        self.sp_lmstudio_tok.setValue(self._cfg["lmstudio_max_tokens"])
         self.sp_font.setValue(self._cfg["font_size"])
 
     def _on_save(self) -> None:
         self._cfg = {
-            "modello":        self.cb_model.currentText().strip() or DEFAULTS["modello"],
-            "ollama_host":    self.ed_ollama.text().strip()       or DEFAULTS["ollama_host"],
-            "lmstudio_host":  self.ed_lmstudio.text().strip()     or DEFAULTS["lmstudio_host"],
-            "claude_api_key": self.ed_key.text().strip(),
-            "default_folder": self.ed_folder.text().strip()       or DEFAULTS["default_folder"],
-            "max_steps":      int(self.sp_steps.value()),
-            "verbose":        self.cb_verbose.isChecked(),
-            "auto_confirm":   self.cb_autoconfirm.isChecked(),
-            "font_size":      int(self.sp_font.value()),
+            "modello":             self.cb_model.currentText().strip() or DEFAULTS["modello"],
+            "ollama_host":         self.ed_ollama.text().strip()       or DEFAULTS["ollama_host"],
+            "lmstudio_host":       self.ed_lmstudio.text().strip()     or DEFAULTS["lmstudio_host"],
+            "claude_api_key":      self.ed_key.text().strip(),
+            "default_folder":      self.ed_folder.text().strip()       or DEFAULTS["default_folder"],
+            "max_steps":           int(self.sp_steps.value()),
+            "auto_confirm":        self.cb_autoconfirm.isChecked(),
+            "font_size":           int(self.sp_font.value()),
+            "ollama_num_ctx":      int(self.sp_ollama_ctx.value()),
+            "claude_max_tokens":   int(self.sp_claude_tok.value()),
+            "lmstudio_max_tokens": int(self.sp_lmstudio_tok.value()),
+            "max_tool_chars":      int(self.sp_tool_chars.value()),
         }
         save_gui_config(self._cfg)
 
         # propaga: env per ollama, lmstudio e claude
         if self._cfg["claude_api_key"]:
             os.environ["ANTHROPIC_API_KEY"] = self._cfg["claude_api_key"]
-        os.environ["OLLAMA_HOST"] = self._cfg["ollama_host"]
-        os.environ["LMSTUDIO_HOST"] = self._cfg["lmstudio_host"]
+        os.environ["OLLAMA_HOST"]          = self._cfg["ollama_host"]
+        os.environ["LMSTUDIO_HOST"]        = self._cfg["lmstudio_host"]
+        os.environ["OLLAMA_NUM_CTX"]       = str(self._cfg["ollama_num_ctx"])
+        os.environ["CLAUDE_MAX_TOKENS"]    = str(self._cfg["claude_max_tokens"])
+        os.environ["LMSTUDIO_MAX_TOKENS"]  = str(self._cfg["lmstudio_max_tokens"])
+        os.environ["FILEAI_MAX_TOOL_CHARS"] = str(self._cfg["max_tool_chars"])
+        os.environ["FILEAI_MAX_STEPS"]     = str(self._cfg["max_steps"])
 
         try:
             from fileai.config import set_default_modello

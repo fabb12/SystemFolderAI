@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import json
 import os
-import sys
 from typing import Any
 
 from fileai.backends.base import BaseBackend
@@ -23,6 +22,14 @@ DEFAULT_HOST = "http://localhost:1234"
 
 def _host() -> str:
     return (os.environ.get("LMSTUDIO_HOST") or DEFAULT_HOST).rstrip("/")
+
+
+def _max_tokens() -> int:
+    """Token massimi richiesti per ogni risposta LM Studio (env LMSTUDIO_MAX_TOKENS)."""
+    try:
+        return max(512, int(os.environ.get("LMSTUDIO_MAX_TOKENS", "8192")))
+    except (TypeError, ValueError):
+        return 8192
 
 
 def _http_get(url: str, timeout: float = 3.0) -> dict | None:
@@ -63,9 +70,11 @@ class BackendLMStudio(BaseBackend):
     def __init__(self, model: str, host: str | None = None):
         try:
             import requests  # noqa: F401
-        except ImportError:
-            print("Errore: pacchetto 'requests' non installato. Esegui: pip install requests")
-            sys.exit(1)
+        except ImportError as e:
+            raise RuntimeError(
+                "Pacchetto 'requests' non installato.\n"
+                "Installa con: pip install requests"
+            ) from e
 
         self.host  = (host or _host()).rstrip("/")
         self.model = model or self._primo_modello() or "local-model"
@@ -84,13 +93,20 @@ class BackendLMStudio(BaseBackend):
         oai_messages = _to_openai_messages(messages)
 
         payload: dict[str, Any] = {
-            "model":    self.model,
-            "messages": oai_messages,
-            "tools":    registry.get_schema(),
-            "stream":   False,
+            "model":      self.model,
+            "messages":   oai_messages,
+            "tools":      registry.get_schema(),
+            "stream":     False,
+            "max_tokens": _max_tokens(),
         }
 
-        data = _http_post(f"{self.host}/v1/chat/completions", payload)
+        try:
+            data = _http_post(f"{self.host}/v1/chat/completions", payload)
+        except Exception as e:
+            raise RuntimeError(
+                f"Errore LM Studio ({self.host}): {e}\n"
+                "Verifica che il server sia avviato (Developer → Start Server)."
+            ) from e
         choice = (data.get("choices") or [{}])[0]
         msg = choice.get("message") or {}
 
