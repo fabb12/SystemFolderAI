@@ -11,11 +11,13 @@ Package structure:
     │   ├── filesystem.py   operazioni su file e cartelle
     │   ├── analysis.py     analisi statistica e magic bytes
     │   ├── semantic.py     analisi semantica con LLM
-    │   └── health.py       duplicati, salute cartella
+    │   ├── health.py       duplicati, salute cartella
+    │   └── compression.py  comprime/estrai archivi, backup
     ├── backends/
     │   ├── __init__.py     esporta i backend
     │   ├── base.py         interfaccia astratta Backend
     │   ├── ollama.py       backend Ollama
+    │   ├── lmstudio.py     backend LM Studio
     │   └── claude.py       backend Claude API
     ├── agent.py            loop ReAct + conferma interattiva
     └── cli.py              argparse + comandi CLI

@@ -64,13 +64,12 @@ class AgentWorker(QObject):
     finished     = pyqtSignal(str)         # risposta finale
     failed       = pyqtSignal(str)         # eccezione
 
-    def __init__(self, prompt: str, model_spec: str, max_steps: int = 30):
+    def __init__(self, prompt: str, model_spec: str, max_steps: int = 60):
         super().__init__()
         self._prompt      = prompt
         self._model_spec  = model_spec
         self._max_steps   = max_steps
         self._confirm_ans: str | None = None
-        self._confirm_thread: QThread | None = None
 
     @pyqtSlot(str)
     def provide_confirm(self, answer: str) -> None:
@@ -109,6 +108,9 @@ class AgentWorker(QObject):
         from fileai import agent as agent_mod
         from fileai.backends import crea_backend
 
+        # propaga il limite step impostato dall'utente
+        agent_mod.MAX_STEPS = max(5, int(self._max_steps))
+
         # 1) sostituisco la console rich con una che scrive verso il signal
         stream = _SignalStream(self.output.emit)
         new_console = Console(file=stream, force_terminal=False,
@@ -131,7 +133,12 @@ class AgentWorker(QObject):
         agent_mod._chiedi_conferma_utente = _gui_confirm
 
         try:
-            backend = crea_backend(self._model_spec)
+            try:
+                backend = crea_backend(self._model_spec)
+            except Exception as e:
+                # errore di inizializzazione: messaggio chiaro alla GUI
+                self.failed.emit(f"Inizializzazione modello '{self._model_spec}' fallita.\n\n{e}")
+                return
             self.output.emit(f"🤖 Backend pronto: {backend}")
             risposta = agent_mod.run_agente(self._prompt, backend)
             self.finished.emit(risposta or "")

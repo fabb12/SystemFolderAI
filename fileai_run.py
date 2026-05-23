@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 """
-fileai — entry point
+fileai — entry point CLI
 Avvia con: python fileai_run.py <comando> [opzioni]
 """
 import sys
 from pathlib import Path
 
-# aggiungi la cartella padre al path se si lancia da fuori del package
 sys.path.insert(0, str(Path(__file__).parent))
+
+# Monta il package virtuale `fileai` mappando i file root.
+from gui._bootstrap import install as _install_fileai
+_install_fileai()
 
 from fileai.cli import main
 

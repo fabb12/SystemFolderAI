@@ -3,10 +3,17 @@ backends/claude.py — Backend Claude API (Anthropic)
 """
 
 import os
-import sys
 from fileai.backends.base import BaseBackend
 
 _SYSTEM_PROMPT_KEY = "system"
+
+
+def _max_tokens() -> int:
+    """Token massimi richiesti per ogni risposta Claude (env CLAUDE_MAX_TOKENS)."""
+    try:
+        return max(1024, int(os.environ.get("CLAUDE_MAX_TOKENS", "8192")))
+    except (TypeError, ValueError):
+        return 8192
 
 
 class BackendClaude(BaseBackend):
@@ -15,15 +22,19 @@ class BackendClaude(BaseBackend):
         try:
             import anthropic as _anthropic
             self._anthropic = _anthropic
-        except ImportError:
-            print("Errore: anthropic non installato. Esegui: pip install anthropic")
-            sys.exit(1)
+        except ImportError as e:
+            raise RuntimeError(
+                "Pacchetto 'anthropic' non installato.\n"
+                "Installa con: pip install anthropic"
+            ) from e
 
         api_key = os.environ.get("ANTHROPIC_API_KEY")
         if not api_key:
-            print("Errore: ANTHROPIC_API_KEY non impostata.")
-            print("  export ANTHROPIC_API_KEY=sk-ant-...")
-            sys.exit(1)
+            raise RuntimeError(
+                "ANTHROPIC_API_KEY non impostata.\n"
+                "Imposta la chiave in Impostazioni → Modello AI → Claude API\n"
+                "oppure: export ANTHROPIC_API_KEY=sk-ant-..."
+            )
 
         self.model  = model
         self.client = self._anthropic.Anthropic(api_key=api_key)
@@ -91,13 +102,16 @@ class BackendClaude(BaseBackend):
             else:
                 conv.append(m)
 
-        response = self.client.messages.create(
-            model=self.model,
-            max_tokens=2048,
-            system=sys_msg,
-            tools=self._converti_tools(),
-            messages=conv,
-        )
+        try:
+            response = self.client.messages.create(
+                model=self.model,
+                max_tokens=_max_tokens(),
+                system=sys_msg,
+                tools=self._converti_tools(),
+                messages=conv,
+            )
+        except self._anthropic.APIError as e:
+            raise RuntimeError(f"Errore Claude API: {e}") from e
 
         testo      = ""
         tool_calls = []

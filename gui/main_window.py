@@ -9,12 +9,12 @@ import re
 from html import escape
 from pathlib import Path
 
-from PyQt6.QtCore import Qt, QThread, QSize
-from PyQt6.QtGui import QAction, QKeySequence, QFont, QTextCursor, QIcon
+from PyQt6.QtCore import Qt, QThread
+from PyQt6.QtGui import QAction, QKeySequence, QFont, QTextCursor, QDragEnterEvent, QDropEvent
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QPushButton, QLineEdit, QTextEdit, QSplitter, QFileDialog, QInputDialog,
-    QMessageBox, QToolButton, QFrame, QSizePolicy, QStatusBar,
+    QPushButton, QLineEdit, QTextEdit, QFileDialog, QInputDialog,
+    QMessageBox, QFrame, QStatusBar,
 )
 
 from gui.styles import COLORS, dark_qss
@@ -31,6 +31,7 @@ QUICK_ACTIONS = [
     ("cerca",     "🔎", "Cerca",            "Trova file per nome o contenuto"),
     ("info",      "📊", "Analizza",         "Rapporto completo: tipi, salute, duplicati"),
     ("contenuti", "🧠", "Capire contenuti", "Spiega di cosa trattano i documenti"),
+    ("backup",    "💾", "Backup",           "Crea un backup compresso della cartella"),
 ]
 
 
@@ -116,6 +117,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("FileAI — Gestione intelligente con AI")
         self.resize(1180, 740)
         self.setMinimumSize(880, 560)
+        self.setAcceptDrops(True)
 
         # config persistente
         self.cfg = load_gui_config()
@@ -339,19 +341,20 @@ class MainWindow(QMainWindow):
 
     # ── Welcome / helpers ──────────────────────────────────
     def _welcome(self) -> None:
+        c = COLORS
         self._append_html(
-            f"<div style='color:{COLORS['accent']}; font-size:16px; font-weight:600;'>"
+            f"<div style='color:{c['accent']}; font-size:16px; font-weight:600;'>"
             f"Benvenuto in FileAI</div>"
-            f"<div style='color:{COLORS['text_dim']}; margin-top:4px;'>"
+            f"<div style='color:{c['text_dim']}; margin-top:4px;'>"
             f"Seleziona un'azione a sinistra oppure scrivi una richiesta libera.<br>"
-            f"Cartella attuale: <span style='color:{COLORS['cyan']};'>"
+            f"Cartella attuale: <span style='color:{c['cyan']};'>"
             f"{escape(self.cfg['default_folder'])}</span>"
             f"</div>"
-            f"<div style='color:{COLORS['text_muted']}; margin-top:6px; font-size:11px;'>"
-            f"Suggerimento: usa <b>Ctrl+,</b> per le impostazioni · "
-            f"<b>Ctrl+L</b> per pulire l'output"
+            f"<div style='color:{c['text_muted']}; margin-top:8px; font-size:11px;'>"
+            f"💡 Trascina una cartella nella finestra per impostarla come target.<br>"
+            f"⌨️  <b>Ctrl+,</b> Impostazioni · <b>Ctrl+L</b> Pulisci · <b>Ctrl+O</b> Apri cartella · <b>Ctrl+Q</b> Esci"
             f"</div><hr style='border:none; border-top:1px solid "
-            f"{COLORS['border']}; margin:12px 0;'>"
+            f"{c['border']}; margin:12px 0;'>"
         )
 
     def _folder_short(self) -> str:
@@ -368,6 +371,17 @@ class MainWindow(QMainWindow):
             os.environ["OLLAMA_HOST"] = self.cfg["ollama_host"]
         if self.cfg.get("lmstudio_host"):
             os.environ["LMSTUDIO_HOST"] = self.cfg["lmstudio_host"]
+        # Limiti token: propagati come env per essere letti dai backend e da agent.py
+        if self.cfg.get("ollama_num_ctx"):
+            os.environ["OLLAMA_NUM_CTX"] = str(self.cfg["ollama_num_ctx"])
+        if self.cfg.get("claude_max_tokens"):
+            os.environ["CLAUDE_MAX_TOKENS"] = str(self.cfg["claude_max_tokens"])
+        if self.cfg.get("lmstudio_max_tokens"):
+            os.environ["LMSTUDIO_MAX_TOKENS"] = str(self.cfg["lmstudio_max_tokens"])
+        if self.cfg.get("max_tool_chars"):
+            os.environ["FILEAI_MAX_TOOL_CHARS"] = str(self.cfg["max_tool_chars"])
+        if self.cfg.get("max_steps"):
+            os.environ["FILEAI_MAX_STEPS"] = str(self.cfg["max_steps"])
 
     def _apply_font_size(self, size: int) -> None:
         f = self._chat.font()
@@ -393,6 +407,7 @@ class MainWindow(QMainWindow):
             "cerca":     "Cosa cerchi?  (es: 'relazione 2024')",
             "info":      "Cartella da analizzare (Invio = cartella corrente)",
             "contenuti": "Cartella di cui capire i contenuti (Invio = cartella corrente)",
+            "backup":    "Cartella di cui fare backup (Invio = cartella corrente)",
         }
         self._input.setPlaceholderText(prompts.get(action_id, "..."))
         self._input.setFocus()
@@ -469,9 +484,12 @@ class MainWindow(QMainWindow):
     def _about(self) -> None:
         QMessageBox.about(
             self, "Informazioni",
-            "<b>FileAI</b><br>Gestione intelligente di file e cartelle con AI<br>"
-            "<br>Backend: Ollama (locale) o Claude API<br>"
-            "GUI: PyQt6 · Tema: Tokyo Night dark"
+            "<b>FileAI</b><br>"
+            "Gestione intelligente di file e cartelle con AI<br><br>"
+            "<b>Backend:</b> Ollama · LM Studio · Claude API<br>"
+            "<b>Tool:</b> organizzazione, ricerca, analisi semantica,<br>"
+            "duplicati, salute, compressione, backup<br>"
+            "<b>GUI:</b> PyQt6 · Tema Tokyo Night dark"
         )
 
     # ── Output rendering ───────────────────────────────────
@@ -583,6 +601,14 @@ class MainWindow(QMainWindow):
                 f"raggruppali per argomento e suggerisci come organizzarli per tema."
             )
 
+        if a == "backup":
+            target = raw.strip() or folder
+            return (
+                f"Crea un backup compresso della cartella '{target}' usando "
+                f"crea_backup con compresso=true. Conferma la creazione e "
+                f"riepiloga numero file e dimensione."
+            )
+
         return raw
 
     def _on_send(self) -> None:
@@ -612,7 +638,7 @@ class MainWindow(QMainWindow):
         self._worker = AgentWorker(
             prompt=prompt,
             model_spec=self.cfg["modello"],
-            max_steps=int(self.cfg.get("max_steps", 30)),
+            max_steps=int(self.cfg.get("max_steps", 60)),
         )
         self._worker.moveToThread(self._thread)
 
@@ -643,7 +669,10 @@ class MainWindow(QMainWindow):
             f"border-radius: 4px;'>"
             f"<div style='color:{c['error']}; font-weight:700;'>✗ Errore</div>"
             f"<div style='color:{c['text']}; white-space: pre-wrap;'>"
-            f"{escape(err)}</div></div>"
+            f"{escape(err)}</div>"
+            f"<div style='color:{c['text_muted']}; font-size:11px; margin-top:6px;'>"
+            f"Apri <b>Impostazioni</b> per verificare modello, host e chiave API.</div>"
+            f"</div>"
         )
         self._status_label.setText("Errore")
 
@@ -665,9 +694,10 @@ class MainWindow(QMainWindow):
             return
         if self._thread is not None:
             self._info("Stop richiesto (l'agente terminerà al prossimo step)")
-            # Non possiamo killare il thread Python in modo pulito; terminate è ultima ratio
             self._thread.requestInterruption()
-            self._thread.terminate()
+            # NB: terminate() è ultima ratio — provoca crash se thread esegue I/O.
+            # Lasciamo che il thread completi lo step corrente; l'utente può forzare
+            # la chiusura della finestra se necessario.
 
     # ── Conferma interattiva ───────────────────────────────
     def _on_confirm_request(self, plan_text: str) -> None:
@@ -711,6 +741,34 @@ class MainWindow(QMainWindow):
         self._status_label.setText("Elaborazione in corso…")
         if self._worker is not None:
             self._worker.provide_confirm(answer)
+
+    # ── Drag & drop ────────────────────────────────────────
+    def dragEnterEvent(self, ev: QDragEnterEvent) -> None:
+        if ev.mimeData().hasUrls():
+            ev.acceptProposedAction()
+
+    def dropEvent(self, ev: QDropEvent) -> None:
+        urls = ev.mimeData().urls()
+        if not urls:
+            return
+        paths = [u.toLocalFile() for u in urls if u.toLocalFile()]
+        if not paths:
+            return
+
+        # se è una cartella sola, la imposto anche come cartella di lavoro
+        if len(paths) == 1 and Path(paths[0]).is_dir():
+            self.cfg["default_folder"] = paths[0]
+            from gui.settings_dialog import save_gui_config
+            save_gui_config(self.cfg)
+            self._folder_label.setText(self._folder_short())
+
+        # inserisco i percorsi nel campo input (uno per riga se più di uno)
+        if len(paths) == 1:
+            self._input.setText(paths[0])
+        else:
+            self._input.setText(" ; ".join(paths))
+        self._input.setFocus()
+        self._info(f"📥  Trascinati {len(paths)} elemento/i")
 
     # ── Close ──────────────────────────────────────────────
     def closeEvent(self, ev) -> None:
