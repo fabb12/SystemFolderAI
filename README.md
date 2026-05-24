@@ -8,11 +8,9 @@ interattiva delle azioni distruttive.
 ## Installazione
 
 ```bash
-pip install ollama anthropic rich requests
-pip install PyQt6           # opzionale, solo per la GUI
-pip install pypdf           # opzionale, per leggere PDF nell'analisi semantica
-ollama pull llama3.1        # o qwen2.5, mistral-nemo, ecc.
-ollama serve                # avvia il server in un terminale separato
+pip install -r requirements.txt    # tutte le dipendenze
+ollama pull llama3.1               # o qwen2.5, mistral-nemo, ecc.
+ollama serve                       # avvia il server in un terminale separato
 ```
 
 ## GUI (PyQt6, dark mode)
@@ -101,3 +99,15 @@ della GUI.
 
 - `~/.fileai.json` — modello CLI default
 - `~/.fileai_gui.json` — preferenze GUI
+
+## Build standalone (PyInstaller)
+
+```bash
+pip install pyinstaller
+pyinstaller fileai.spec --noconfirm
+# output: dist/FileAI/FileAI(.exe)
+```
+
+Per includere l'icona nell'eseguibile, generare `assets/icon.ico` (Windows)
+o `assets/icon.icns` (macOS) a partire da `assets/icon.svg`. La GUI ha
+comunque sempre la sua icona renderizzata via SVG a runtime.

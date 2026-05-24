@@ -15,3 +15,8 @@ venv/
 # Artefatti dell'app
 *.bak
 *_backup_*.zip
+
+# PyInstaller
+build/
+dist/
+*.spec.bak

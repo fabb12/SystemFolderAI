@@ -21,8 +21,12 @@ mappandoli a runtime. NON serve `pip install -e .`.
 SystemFolderAI/
 ├── CLAUDE.md              ← questo file
 ├── README.md
+├── requirements.txt       ← dipendenze pip
+├── fileai.spec            ← PyInstaller spec per build standalone
 ├── .claude/
 │   └── settings.json      ← permission allowlist Claude Code
+├── assets/
+│   └── icon.svg           ← logo dell'app (fonte per .ico/.icns)
 ├── fileai_run.py          ← entry point CLI: python fileai_run.py ...
 ├── fileai_gui.py          ← entry point GUI: python fileai_gui.py
 │
@@ -47,6 +51,7 @@ SystemFolderAI/
     ├── main_window.py     ← MainWindow PyQt6 (sidebar, chat, input)
     ├── worker.py          ← QThread che esegue run_agente
     ├── settings_dialog.py ← dialog impostazioni multi-tab
+    ├── icons.py           ← icone SVG inline (Feather-like) + logo app
     └── styles.py          ← QSS dark mode (palette Tokyo Night)
 ```
 
@@ -130,3 +135,28 @@ python fileai_run.py modelli              # lista modelli installati
 2. Aggiungi in `gui/_bootstrap.py` → `_BACKEND_MODULES`.
 3. Aggiungi il branch in `crea_backend` (sempre in `_bootstrap.py`).
 4. Aggiungi il parsing in `config.py::parse_modello`.
+
+## Build standalone (PyInstaller)
+
+```bash
+pip install -r requirements.txt
+pip install pyinstaller
+pyinstaller fileai.spec --noconfirm
+```
+
+Lo `.spec` include i file root come **data files** (sono caricati via
+`importlib.spec_from_file_location` da `gui/_bootstrap.py`, non come moduli
+classici). `_bootstrap` deduce `repo_root` da `__file__`: nell'app frozen,
+`Path(gui/_bootstrap.py).parent.parent` punta a `sys._MEIPASS` dove
+PyInstaller estrae i datas — il loader funziona out-of-the-box.
+
+Per l'icona dell'eseguibile, generare `assets/icon.ico` (Windows) o
+`assets/icon.icns` (macOS) da `assets/icon.svg` con un tool a scelta
+(es. `cairosvg` + `Pillow`).
+
+## Convenzioni icone GUI
+
+Tutte le icone in `gui/icons.py` sono **SVG inline minimali**
+(stroke 1.8px, viewBox 24×24, no fill, line-cap rotondo). Renderizzate via
+`QSvgRenderer` su `QPixmap` e cachate. `currentColor` viene sostituito al
+render con il colore del tema. Nessun asset esterno → portabilità totale.

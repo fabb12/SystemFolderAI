@@ -9,7 +9,7 @@ import re
 from html import escape
 from pathlib import Path
 
-from PyQt6.QtCore import Qt, QThread
+from PyQt6.QtCore import Qt, QThread, QSize
 from PyQt6.QtGui import QAction, QKeySequence, QFont, QTextCursor, QDragEnterEvent, QDropEvent
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
@@ -20,19 +20,29 @@ from PyQt6.QtWidgets import (
 from gui.styles import COLORS, dark_qss
 from gui.worker import AgentWorker
 from gui.settings_dialog import SettingsDialog, load_gui_config
+from gui.icons import (
+    icon as svg_icon, app_icon,
+    ICON_CHAT, ICON_FOLDER, ICON_SEARCH, ICON_CHART, ICON_DOC, ICON_ARCHIVE,
+    ICON_FOLDER_OPEN, ICON_SETTINGS, ICON_TRASH, ICON_SEND, ICON_STOP,
+    ICON_REFRESH, ICON_CHIP,
+)
 
 
 # ── Quick actions sidebar ─────────────────────────────────────────
 
 QUICK_ACTIONS = [
-    # (id, icona, etichetta, descrizione)
-    ("chat",      "💬", "Chat libera",      "Domanda in linguaggio naturale"),
-    ("organizza", "📁", "Organizza",        "Riordina una cartella per tipo"),
-    ("cerca",     "🔎", "Cerca",            "Trova file per nome o contenuto"),
-    ("info",      "📊", "Analizza",         "Rapporto completo: tipi, salute, duplicati"),
-    ("contenuti", "🧠", "Capire contenuti", "Spiega di cosa trattano i documenti"),
-    ("backup",    "💾", "Backup",           "Crea un backup compresso della cartella"),
+    # (id, svg, etichetta, descrizione)
+    ("chat",      ICON_CHAT,    "Chat libera",      "Domanda in linguaggio naturale"),
+    ("organizza", ICON_FOLDER,  "Organizza",        "Riordina una cartella per tipo"),
+    ("cerca",     ICON_SEARCH,  "Cerca",            "Trova file per nome o contenuto"),
+    ("info",      ICON_CHART,   "Analizza",         "Rapporto completo: tipi, salute, duplicati"),
+    ("contenuti", ICON_DOC,     "Capire contenuti", "Spiega di cosa trattano i documenti"),
+    ("backup",    ICON_ARCHIVE, "Backup",           "Crea un backup compresso della cartella"),
 ]
+
+
+# Icona laterale per ogni azione (tag → svg)
+ACTION_ICON = {aid: svg for aid, svg, _, _ in QUICK_ACTIONS}
 
 
 # ── Markdown → HTML ───────────────────────────────────────────────
@@ -118,6 +128,7 @@ class MainWindow(QMainWindow):
         self.resize(1180, 740)
         self.setMinimumSize(880, 560)
         self.setAcceptDrops(True)
+        self.setWindowIcon(app_icon(COLORS["accent"]))
 
         # config persistente
         self.cfg = load_gui_config()
@@ -189,12 +200,14 @@ class MainWindow(QMainWindow):
         v.addWidget(lab)
 
         self._action_buttons: dict[str, QPushButton] = {}
-        for aid, icon, label, desc in QUICK_ACTIONS:
-            btn = QPushButton(f"  {icon}   {label}")
+        for aid, svg, label, desc in QUICK_ACTIONS:
+            btn = QPushButton(f"   {label}")
             btn.setObjectName("SidebarBtn")
             btn.setCheckable(True)
             btn.setToolTip(desc)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setIcon(svg_icon(svg, COLORS["text_dim"], size=18))
+            btn.setIconSize(QSize(18, 18))
             btn.clicked.connect(lambda _=False, a=aid: self._select_action(a))
             v.addWidget(btn)
             self._action_buttons[aid] = btn
@@ -215,9 +228,11 @@ class MainWindow(QMainWindow):
         self._folder_label.setWordWrap(True)
         v.addWidget(self._folder_label)
 
-        pick = QPushButton("  📂   Cambia cartella")
+        pick = QPushButton("   Cambia cartella")
         pick.setObjectName("SidebarBtn")
         pick.setCursor(Qt.CursorShape.PointingHandCursor)
+        pick.setIcon(svg_icon(ICON_FOLDER_OPEN, COLORS["text_dim"], size=18))
+        pick.setIconSize(QSize(18, 18))
         pick.clicked.connect(self._pick_folder)
         v.addWidget(pick)
 
@@ -226,15 +241,19 @@ class MainWindow(QMainWindow):
         lab3.setObjectName("SidebarLabel")
         v.addWidget(lab3)
 
-        st = QPushButton("  ⚙   Impostazioni")
+        st = QPushButton("   Impostazioni")
         st.setObjectName("SidebarBtn")
         st.setCursor(Qt.CursorShape.PointingHandCursor)
+        st.setIcon(svg_icon(ICON_SETTINGS, COLORS["text_dim"], size=18))
+        st.setIconSize(QSize(18, 18))
         st.clicked.connect(self._open_settings)
         v.addWidget(st)
 
-        cl = QPushButton("  🧹   Pulisci output")
+        cl = QPushButton("   Pulisci output")
         cl.setObjectName("SidebarBtn")
         cl.setCursor(Qt.CursorShape.PointingHandCursor)
+        cl.setIcon(svg_icon(ICON_TRASH, COLORS["text_dim"], size=18))
+        cl.setIconSize(QSize(18, 18))
         cl.clicked.connect(self._clear_chat)
         v.addWidget(cl)
 
@@ -248,7 +267,13 @@ class MainWindow(QMainWindow):
         h.setContentsMargins(16, 6, 16, 6)
         h.setSpacing(10)
 
-        self._action_title = QLabel("💬  Chat libera")
+        self._title_icon = QLabel()
+        self._title_icon.setPixmap(
+            svg_icon(ICON_CHAT, COLORS["accent"], size=18).pixmap(QSize(18, 18))
+        )
+        h.addWidget(self._title_icon)
+
+        self._action_title = QLabel("Chat libera")
         self._action_title.setStyleSheet(
             f"color: {COLORS['text']}; font-size: 14px; font-weight: 600;"
         )
@@ -256,12 +281,19 @@ class MainWindow(QMainWindow):
 
         h.addStretch(1)
 
-        h.addWidget(QLabel("Modello:", objectName="TopbarLabel"))
+        chip_lbl = QLabel()
+        chip_lbl.setPixmap(
+            svg_icon(ICON_CHIP, COLORS["text_dim"], size=14).pixmap(QSize(14, 14))
+        )
+        h.addWidget(chip_lbl)
+
         self._model_pill = QLabel(self.cfg["modello"])
         self._model_pill.setObjectName("ModelPill")
         h.addWidget(self._model_pill)
 
-        change = QPushButton("Cambia")
+        change = QPushButton(" Cambia")
+        change.setIcon(svg_icon(ICON_REFRESH, COLORS["text"], size=14))
+        change.setIconSize(QSize(14, 14))
         change.clicked.connect(self._quick_model_change)
         h.addWidget(change)
 
@@ -282,10 +314,12 @@ class MainWindow(QMainWindow):
         h.setContentsMargins(14, 12, 14, 12)
         h.setSpacing(8)
 
-        self._browse_btn = QPushButton("📂")
+        self._browse_btn = QPushButton()
         self._browse_btn.setToolTip("Scegli una cartella da inserire nella richiesta")
         self._browse_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._browse_btn.setFixedWidth(40)
+        self._browse_btn.setIcon(svg_icon(ICON_FOLDER_OPEN, COLORS["text"], size=18))
+        self._browse_btn.setIconSize(QSize(18, 18))
         self._browse_btn.clicked.connect(self._pick_folder_into_input)
         h.addWidget(self._browse_btn)
 
@@ -295,15 +329,19 @@ class MainWindow(QMainWindow):
         self._input.returnPressed.connect(self._on_send)
         h.addWidget(self._input, 1)
 
-        self._send_btn = QPushButton("Invia")
+        self._send_btn = QPushButton(" Invia")
         self._send_btn.setObjectName("PrimaryBtn")
         self._send_btn.setMinimumWidth(96)
+        self._send_btn.setIcon(svg_icon(ICON_SEND, COLORS["bg"], size=14))
+        self._send_btn.setIconSize(QSize(14, 14))
         self._send_btn.clicked.connect(self._on_send)
         h.addWidget(self._send_btn)
 
-        self._stop_btn = QPushButton("Stop")
+        self._stop_btn = QPushButton(" Stop")
         self._stop_btn.setObjectName("DangerBtn")
         self._stop_btn.setEnabled(False)
+        self._stop_btn.setIcon(svg_icon(ICON_STOP, COLORS["error"], size=14))
+        self._stop_btn.setIconSize(QSize(14, 14))
         self._stop_btn.clicked.connect(self._on_stop)
         h.addWidget(self._stop_btn)
 
@@ -351,8 +389,8 @@ class MainWindow(QMainWindow):
             f"{escape(self.cfg['default_folder'])}</span>"
             f"</div>"
             f"<div style='color:{c['text_muted']}; margin-top:8px; font-size:11px;'>"
-            f"💡 Trascina una cartella nella finestra per impostarla come target.<br>"
-            f"⌨️  <b>Ctrl+,</b> Impostazioni · <b>Ctrl+L</b> Pulisci · <b>Ctrl+O</b> Apri cartella · <b>Ctrl+Q</b> Esci"
+            f"Trascina una cartella nella finestra per impostarla come target.<br>"
+            f"<b>Ctrl+,</b> Impostazioni · <b>Ctrl+L</b> Pulisci · <b>Ctrl+O</b> Apri cartella · <b>Ctrl+Q</b> Esci"
             f"</div><hr style='border:none; border-top:1px solid "
             f"{c['border']}; margin:12px 0;'>"
         )
@@ -398,8 +436,11 @@ class MainWindow(QMainWindow):
             btn.setChecked(aid == action_id)
 
         meta = {a[0]: a for a in QUICK_ACTIONS}[action_id]
-        _, icon, label, desc = meta
-        self._action_title.setText(f"{icon}  {label}")
+        _, svg, label, desc = meta
+        self._action_title.setText(label)
+        self._title_icon.setPixmap(
+            svg_icon(svg, COLORS["accent"], size=18).pixmap(QSize(18, 18))
+        )
 
         prompts = {
             "chat":      "Scrivi una richiesta...",
@@ -789,6 +830,8 @@ def run() -> int:
     import sys
     app = QApplication.instance() or QApplication(sys.argv)
     app.setApplicationName("FileAI")
+    app.setApplicationDisplayName("FileAI")
+    app.setWindowIcon(app_icon(COLORS["accent"]))
     app.setStyleSheet(dark_qss())
     # font di base
     f = QFont("Segoe UI")

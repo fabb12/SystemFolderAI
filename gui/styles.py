@@ -72,7 +72,7 @@ def dark_qss() -> str:
         color: {c['text']};
         border: none;
         border-radius: 6px;
-        padding: 9px 14px;
+        padding: 9px 12px;
         text-align: left;
         font-size: 13px;
         margin: 1px 8px;
