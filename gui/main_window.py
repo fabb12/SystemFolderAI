@@ -129,6 +129,10 @@ class MainWindow(QMainWindow):
         self._current_action                = "chat"
         self._waiting_confirm               = False
 
+        # stato del renderer di output (ragionamento multi-riga)
+        self._thought_buffer: list[str]     = []
+        self._in_thought                    = False
+
         self._build_ui()
         self._apply_font_size(self.cfg.get("font_size", 13))
 
@@ -478,6 +482,8 @@ class MainWindow(QMainWindow):
         self._info(f"🤖  Modello: {self.cfg['modello']}")
 
     def _clear_chat(self) -> None:
+        self._thought_buffer = []
+        self._in_thought     = False
         self._chat.clear()
         self._welcome()
 
@@ -499,35 +505,158 @@ class MainWindow(QMainWindow):
         self._chat.append("")  # newline
         self._chat.moveCursor(QTextCursor.MoveOperation.End)
 
+    def _flush_thought(self) -> None:
+        """Renderizza il ragionamento accumulato come un blocco unico."""
+        if not self._thought_buffer:
+            self._in_thought = False
+            return
+        body = "\n".join(self._thought_buffer).strip()
+        self._thought_buffer = []
+        self._in_thought = False
+        if not body:
+            return
+        c = COLORS
+        self._append_html(
+            f"<div style='margin:6px 0 6px 14px; padding:8px 12px; "
+            f"background:{c['bg_alt']}; border-left:2px solid {c['border_soft']}; "
+            f"border-radius:4px;'>"
+            f"<div style='color:{c['text_muted']}; font-size:10px; "
+            f"font-weight:700; text-transform:uppercase; letter-spacing:0.6px; "
+            f"margin-bottom:4px;'>💭 Ragionamento</div>"
+            f"<div style='color:{c['text_dim']}; font-style:italic;'>"
+            f"{_md_to_html(body)}</div></div>"
+        )
+
     def _append_line(self, raw: str) -> None:
-        """Renderizza una riga di output dell'agente con colori."""
-        if raw == "":
-            self._chat.append("")
+        """
+        Renderizza una riga dell'output dell'agente come blocchi puliti.
+
+        Filtra il rumore tipico del rendering rich su terminale (frame `┌─│└─`,
+        spinner `⏳ Elaborazione…`, righe vuote di cornice) e riconosce i
+        marker semantici (header di step, ragionamento, azione tool, risultato).
+        """
+        c    = COLORS
+        text = raw.rstrip()
+        s    = text.strip()
+
+        # 1) riga vuota → se siamo in un ragionamento multi-paragrafo la
+        #    accumuliamo (preserva la struttura). Altrimenti non rendiamo nulla.
+        if not s:
+            if self._in_thought:
+                self._thought_buffer.append("")
             return
 
-        text = raw.rstrip()
-        c = COLORS
-        # heuristics di colore
+        # 2) spinner residuale ("⏳ Elaborazione...") — in terminale verrebbe
+        #    sovrascritto dal `\r`; qui lo scartiamo.
+        if "Elaborazione" in s and ("⏳" in s or s.endswith("...")):
+            return
+
+        # 3) frame vuoto (solo `│` e spazi) → ignora
+        if set(s) <= {"│", " "}:
+            return
+
+        # 4) divisore di rich con etichetta: "──── ripresa agente ────"
+        m = re.match(r"^─+\s+(.+?)\s+─+\s*$", text)
+        if m:
+            self._flush_thought()
+            self._append_html(
+                f"<div style='color:{c['text_muted']}; font-size:10px; "
+                f"text-transform:uppercase; letter-spacing:0.8px; "
+                f"text-align:center; margin:10px 0 6px 0;'>"
+                f"— {escape(m.group(1).strip())} —</div>"
+            )
+            return
+
+        # 5) divisore puro (solo trattini) → linea sottile
+        if set(s) <= {"─"}:
+            self._flush_thought()
+            self._append_html(
+                f"<hr style='border:none; border-top:1px solid "
+                f"{c['border']}; margin:8px 0;'>"
+            )
+            return
+
+        # 6) header di step: "┌─ Step N ───…"
+        m = re.match(r"^┌─\s*Step\s+(\d+).*$", text)
+        if m:
+            self._flush_thought()
+            self._append_html(
+                f"<div style='margin:14px 0 4px 0; color:{c['accent']}; "
+                f"font-weight:700; font-size:13px;'>"
+                f"▸ Step {m.group(1)}</div>"
+            )
+            return
+
+        # 7) footer di step: "└─ completato in N step, X operazioni"
+        m = re.match(r"^└─\s*(.+)$", text)
+        if m:
+            self._flush_thought()
+            self._append_html(
+                f"<div style='color:{c['text_muted']}; font-size:11px; "
+                f"margin:2px 0 8px 14px;'>· {escape(m.group(1).strip())}</div>"
+            )
+            return
+
+        # 8) ragionamento: "│  💭 <testo>" (può continuare su più righe)
+        m = re.match(r"^│\s+💭\s*(.*)$", text)
+        if m:
+            self._flush_thought()
+            self._in_thought = True
+            body = re.sub(r"\[/?italic\]", "", m.group(1)).strip()
+            if body:
+                self._thought_buffer.append(body)
+            return
+
+        # 9) azione tool: "│  <icona> <descrizione>"
+        m = re.match(r"^│\s+(.+)$", text)
+        if m:
+            self._flush_thought()
+            self._append_html(
+                f"<div style='color:{c['cyan']}; margin:6px 0 2px 14px; "
+                f"font-size:12px;'>→ {escape(m.group(1).strip())}</div>"
+            )
+            return
+
+        # 10) risultato del tool: riga indentata di 4+ spazi
+        if raw.startswith("    "):
+            self._flush_thought()
+            body  = raw.lstrip().rstrip()
+            color = c["text_dim"]
+            if body.startswith("✅"):
+                color = c["success"]
+            elif body.startswith(("ERRORE", "⚠")):
+                color = c["warning"]
+            elif body.startswith("❌"):
+                color = c["error"]
+            elif body.startswith("..."):
+                color = c["text_muted"]
+            self._append_html(
+                f"<div style='color:{color}; margin:1px 0 1px 32px; "
+                f"font-family: ui-monospace, Menlo, Consolas, monospace; "
+                f"font-size:11px; white-space: pre-wrap;'>"
+                f"{escape(body)}</div>"
+            )
+            return
+
+        # 11) se siamo dentro un ragionamento, accumula la riga (continuazione)
+        if self._in_thought:
+            self._thought_buffer.append(text)
+            return
+
+        # 12) default: messaggio generico (es. "🤖 Backend pronto", "⚠ Limite…")
+        color = c["text"]
         if text.startswith("✅") or "completato" in text.lower():
             color = c["success"]
         elif text.startswith(("ERRORE", "⚠")):
             color = c["warning"]
         elif text.startswith("❌"):
             color = c["error"]
-        elif "💭" in text:
-            color = c["text_muted"]
-        elif text.startswith(("┌", "└", "│", "─")) or "Step " in text:
-            color = c["text_muted"]
         elif text.startswith("🤖"):
             color = c["cyan"]
         elif text.startswith("⏸"):
             color = c["warning"]
-        else:
-            color = c["text"]
-
         self._append_html(
-            f"<div style='color:{color}; "
-            f"font-family: ui-monospace, Menlo, Consolas, monospace; "
+            f"<div style='color:{color}; margin:2px 0; "
             f"white-space: pre-wrap;'>{escape(text)}</div>"
         )
 
@@ -655,6 +784,7 @@ class MainWindow(QMainWindow):
         self._thread.start()
 
     def _on_finished(self, risposta: str) -> None:
+        self._flush_thought()
         if risposta and risposta.strip():
             self._agent_final(risposta)
         else:
@@ -662,6 +792,7 @@ class MainWindow(QMainWindow):
         self._status_label.setText("Pronto")
 
     def _on_failed(self, err: str) -> None:
+        self._flush_thought()
         c = COLORS
         self._append_html(
             f"<div style='margin: 10px 0; padding: 10px 14px; "
@@ -701,6 +832,7 @@ class MainWindow(QMainWindow):
 
     # ── Conferma interattiva ───────────────────────────────
     def _on_confirm_request(self, plan_text: str) -> None:
+        self._flush_thought()
         c = COLORS
         self._append_html(
             f"<div style='margin: 14px 0; padding: 10px 14px; "
