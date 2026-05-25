@@ -43,6 +43,7 @@ _TOOL_MODULES = {
     "semantic":    "fileai.tools.semantic",
     "health":      "fileai.tools.health",
     "compression": "fileai.tools.compression",
+    "vision":      "fileai.tools.vision",
 }
 
 
