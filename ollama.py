@@ -9,6 +9,7 @@ dedicato che cerca il vero pacchetto saltando la directory locale.
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 
 from fileai.backends.base import BaseBackend
