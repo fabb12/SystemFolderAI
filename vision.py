@@ -38,16 +38,55 @@ _MEDIA_TYPE = {
 _MAX_BYTES = 8 * 1024 * 1024  # 8 MB
 
 
+_SYSTEM_VISIONE = (
+    "Sei un classificatore di immagini. Rispondi SEMPRE in italiano e SEMPRE "
+    "con un singolo oggetto JSON valido, nessun testo prima o dopo, nessun "
+    "blocco markdown. Usa esattamente le chiavi in italiano richieste."
+)
+
 _PROMPT_VISIONE = (
-    "Analizza questa immagine e rispondi SOLO con JSON valido, nessun testo extra:\n"
-    '{"soggetto":"cosa rappresenta in 1 frase",'
-    '"categoria":"una tra Foto-Persone Foto-Paesaggi Foto-Animali Foto-Cibo '
-    'Screenshot Documento-Scansionato Ricevuta Grafica-Logo Meme Diagramma Arte Altro",'
-    '"sottocategoria":"specifica es Ritratto Spiaggia Gatto Pizza Codice Fattura",'
-    '"tag":["tag1","tag2","tag3"],'
-    '"cartella_consigliata":"NomeCartella/Sottocartella"}\n'
+    "Analizza questa immagine e rispondi SOLO con un oggetto JSON valido "
+    "(nessun testo extra, nessun ```), usando ESATTAMENTE queste chiavi in italiano:\n"
+    "{\n"
+    '  "soggetto": "cosa rappresenta in 1 frase",\n'
+    '  "categoria": "una tra: Foto-Persone, Foto-Paesaggi, Foto-Animali, '
+    "Foto-Cibo, Screenshot, Documento-Scansionato, Ricevuta, Grafica-Logo, "
+    'Meme, Diagramma, Arte, Altro",\n'
+    '  "sottocategoria": "specifica, es: Ritratto, Spiaggia, Gatto, Pizza, '
+    'Codice, Fattura",\n'
+    '  "tag": ["tag1", "tag2", "tag3"],\n'
+    '  "cartella_consigliata": "NomeCartella/Sottocartella"\n'
+    "}\n"
+    "Esempio di risposta valida:\n"
+    '{"soggetto":"Tramonto sul mare con palme","categoria":"Foto-Paesaggi",'
+    '"sottocategoria":"Spiaggia","tag":["tramonto","mare","vacanza"],'
+    '"cartella_consigliata":"Foto/Paesaggi"}\n'
     "Nome file: {nome}"
 )
+
+
+# Alias inglese → italiano: alcuni modelli (Haiku, llava piccoli) tendono a
+# rispondere in inglese anche se il prompt è italiano. Normalizziamo qui.
+_ALIAS = {
+    "subject":          "soggetto",
+    "description":      "soggetto",
+    "content":          "soggetto",
+    "category":         "categoria",
+    "subcategory":      "sottocategoria",
+    "tags":             "tag",
+    "suggested_folder": "cartella_consigliata",
+    "folder":           "cartella_consigliata",
+    "recommended_folder": "cartella_consigliata",
+}
+
+
+def _normalizza_chiavi(d: dict) -> dict:
+    """Mappa eventuali chiavi inglesi → italiane."""
+    out: dict = {}
+    for k, v in d.items():
+        ki = k.lower().strip()
+        out[_ALIAS.get(ki, ki)] = v
+    return out
 
 
 # ── Lettura immagine ──────────────────────────────────────────────
@@ -72,8 +111,11 @@ def _classifica_ollama(model: str, nome_file: str, data: bytes, media: str) -> s
     prompt = _PROMPT_VISIONE.format(nome=nome_file)
     risp = _ol.chat(
         model=model,
-        messages=[{"role": "user", "content": prompt, "images": [data]}],
-        options={"num_ctx": _num_ctx()},
+        messages=[
+            {"role": "system", "content": _SYSTEM_VISIONE},
+            {"role": "user", "content": prompt, "images": [data]},
+        ],
+        options={"num_ctx": _num_ctx(), "temperature": 0.2},
     )
     msg = risp["message"] if isinstance(risp, dict) else risp.message
     if hasattr(msg, "model_dump"):
@@ -99,6 +141,8 @@ def _classifica_claude(model: str, nome_file: str, data: bytes, media: str) -> s
     risp = client.messages.create(
         model=model,
         max_tokens=1024,
+        system=_SYSTEM_VISIONE,
+        temperature=0.2,
         messages=[{
             "role": "user",
             "content": [
@@ -121,15 +165,16 @@ def _classifica_lmstudio(model: str, nome_file: str, data: bytes, media: str) ->
     prompt = _PROMPT_VISIONE.format(nome=nome_file)
     payload = {
         "model": model or "local-model",
-        "messages": [{
-            "role": "user",
-            "content": [
+        "messages": [
+            {"role": "system", "content": _SYSTEM_VISIONE},
+            {"role": "user", "content": [
                 {"type": "image_url",
                  "image_url": {"url": f"data:{media};base64,{b64}"}},
                 {"type": "text", "text": prompt},
-            ],
-        }],
+            ]},
+        ],
         "max_tokens": 1024,
+        "temperature": 0.2,
         "stream": False,
     }
     r = requests.post(f"{host}/v1/chat/completions", json=payload, timeout=600)
@@ -157,22 +202,78 @@ def _classifica_immagine(path: Path) -> tuple[dict | None, str]:
     except Exception as e:
         return None, f"ERRORE backend {kind}: {e}"
 
-    m = re.search(r"\{.*\}", raw, re.DOTALL)
-    if m:
+    if not raw or not raw.strip():
+        return None, "il modello vision non ha restituito alcun testo"
+
+    # rimuovi eventuali code-fence markdown (```json ... ```)
+    pulito = re.sub(r"```(?:json)?\s*", "", raw).replace("```", "").strip()
+
+    # cerca il primo oggetto JSON bilanciato (più robusto di .*greedy)
+    candidato = _estrai_json(pulito)
+    if candidato:
         try:
-            return json.loads(m.group()), raw
+            d = _normalizza_chiavi(json.loads(candidato))
+            return _completa_campi(d), raw
         except Exception:
             pass
     return None, raw
 
 
+def _estrai_json(testo: str) -> str | None:
+    """Estrae il primo oggetto JSON con bilanciamento delle graffe."""
+    inizio = testo.find("{")
+    if inizio < 0:
+        return None
+    livello = 0
+    in_string = False
+    escape = False
+    for i in range(inizio, len(testo)):
+        c = testo[i]
+        if in_string:
+            if escape:
+                escape = False
+            elif c == "\\":
+                escape = True
+            elif c == '"':
+                in_string = False
+            continue
+        if c == '"':
+            in_string = True
+        elif c == "{":
+            livello += 1
+        elif c == "}":
+            livello -= 1
+            if livello == 0:
+                return testo[inizio:i + 1]
+    return None
+
+
+def _completa_campi(d: dict) -> dict:
+    """Garantisce che le 5 chiavi attese siano presenti (fallback intelligenti)."""
+    soggetto = d.get("soggetto") or d.get("descrizione") or ""
+    categoria = d.get("categoria") or "Altro"
+    sottocat = d.get("sottocategoria") or categoria
+    tag = d.get("tag") or []
+    if isinstance(tag, str):
+        tag = [t.strip() for t in re.split(r"[,;]", tag) if t.strip()]
+    cartella = (d.get("cartella_consigliata")
+                or f"Immagini/{categoria.replace(' ', '_')}")
+    return {
+        "soggetto":             str(soggetto).strip() or "(non descrivibile)",
+        "categoria":            str(categoria).strip() or "Altro",
+        "sottocategoria":       str(sottocat).strip(),
+        "tag":                  tag if isinstance(tag, list) else [str(tag)],
+        "cartella_consigliata": str(cartella).strip(),
+    }
+
+
 def _format_risultato(d: dict) -> str:
     return (
-        f"   Soggetto      : {d.get('soggetto','?')}\n"
-        f"   Categoria     : {d.get('categoria','?')}\n"
-        f"   Sottocategoria: {d.get('sottocategoria','?')}\n"
-        f"   Tag           : {', '.join(d.get('tag',[]))}\n"
-        f"   Cartella      : {d.get('cartella_consigliata','?')}"
+        f"   Soggetto      : {d['soggetto']}\n"
+        f"   Categoria     : {d['categoria']}\n"
+        f"   Sottocategoria: {d['sottocategoria']}\n"
+        f"   Tag           : {', '.join(d['tag'])}\n"
+        f"   Cartella      : {d['cartella_consigliata']}"
     )
 
 
@@ -199,7 +300,20 @@ def analisi_immagine(percorso: str) -> str:
 
     d, raw = _classifica_immagine(path)
     if d is None:
-        return f"🖼️ {path.name}\n   {raw[:500]}"
+        if raw.startswith("ERRORE"):
+            return f"🖼️ {path.name}\n   {raw[:500]}"
+        # Il modello ha risposto ma non in JSON: usiamo il testo come descrizione
+        descr = raw.strip().replace("\n", " ")[:300]
+        return (
+            f"🖼️ {path.name}\n"
+            f"   Soggetto      : {descr}\n"
+            f"   Categoria     : Altro\n"
+            f"   Sottocategoria: (non classificata)\n"
+            f"   Tag           : \n"
+            f"   Cartella      : Immagini/Altro\n"
+            f"   [nota: modello vision non ha restituito JSON, "
+            f"usato testo come descrizione]"
+        )
     return f"🖼️ {path.name}\n{_format_risultato(d)}"
 
 
