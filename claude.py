@@ -18,7 +18,10 @@ def _max_tokens() -> int:
 
 class BackendClaude(BaseBackend):
 
+    kind = "claude"
+
     def __init__(self, model: str = "claude-sonnet-4-20250514"):
+        super().__init__()
         try:
             import anthropic as _anthropic
             self._anthropic = _anthropic
@@ -112,6 +115,15 @@ class BackendClaude(BaseBackend):
             )
         except self._anthropic.APIError as e:
             raise RuntimeError(f"Errore Claude API: {e}") from e
+
+        usage = getattr(response, "usage", None)
+        if usage is not None:
+            self.aggiorna_uso(
+                input_tokens  = getattr(usage, "input_tokens",  0) or 0,
+                output_tokens = getattr(usage, "output_tokens", 0) or 0,
+                cache_write   = getattr(usage, "cache_creation_input_tokens", 0) or 0,
+                cache_read    = getattr(usage, "cache_read_input_tokens",     0) or 0,
+            )
 
         testo      = ""
         tool_calls = []

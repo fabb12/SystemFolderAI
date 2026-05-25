@@ -108,7 +108,10 @@ def lista_modelli_disponibili(host: str | None = None) -> list[str]:
 
 class BackendOllama(BaseBackend):
 
+    kind = "ollama"
+
     def __init__(self, model: str):
+        super().__init__()
         try:
             self._ollama = _load_real_ollama()
         except ImportError as e:
@@ -138,6 +141,15 @@ class BackendOllama(BaseBackend):
         except Exception as e:
             # rilanciato come RuntimeError per essere mostrato nella GUI
             raise RuntimeError(f"Errore Ollama: {e}") from e
+
+        if isinstance(response, dict):
+            inp_tok = response.get("prompt_eval_count", 0) or 0
+            out_tok = response.get("eval_count",        0) or 0
+        else:
+            inp_tok = getattr(response, "prompt_eval_count", 0) or 0
+            out_tok = getattr(response, "eval_count",        0) or 0
+        self.aggiorna_uso(input_tokens=inp_tok, output_tokens=out_tok)
+
         msg        = response["message"] if isinstance(response, dict) else response.message
         if hasattr(msg, "model_dump"):
             msg = msg.model_dump()

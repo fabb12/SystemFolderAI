@@ -25,6 +25,7 @@ from pathlib import Path
 _ROOT_MODULES = {
     "config":   "fileai.config",
     "registry": "fileai.registry",
+    "pricing":  "fileai.pricing",
     "agent":    "fileai.agent",
 }
 
@@ -76,8 +77,8 @@ def install(repo_root: Path | None = None) -> None:
         _make_pkg("fileai", root)
 
     # ── moduli root piatti ──
-    # ordine: config e registry prima (agent li importa)
-    for fname in ("config", "registry"):
+    # ordine: config, registry e pricing prima (agent li importa)
+    for fname in ("config", "registry", "pricing"):
         full = _ROOT_MODULES[fname]
         if full not in sys.modules:
             _load(root / f"{fname}.py", full)

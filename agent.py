@@ -215,6 +215,39 @@ def _chiedi_conferma_utente(testo_agente: str) -> str | None:
 
 # ── Loop ReAct ────────────────────────────────────────────────────
 
+def _snapshot_uso(backend) -> dict:
+    """Cattura il contatore token del backend per calcolare il delta a fine task."""
+    try:
+        return dict(getattr(backend, "uso_totale", {}) or {})
+    except Exception:
+        return {}
+
+
+def _delta_uso(prima: dict, dopo: dict) -> dict:
+    """Differenza fra due snapshot di `uso_totale`."""
+    chiavi = set(prima) | set(dopo)
+    return {k: int(dopo.get(k, 0)) - int(prima.get(k, 0)) for k in chiavi}
+
+
+def _stampa_riepilogo_costo(backend, snap_iniziale: dict) -> None:
+    """Mostra a fine task token consumati e costo stimato."""
+    try:
+        from fileai.pricing import formatta_riepilogo_uso
+    except ImportError:
+        return
+    delta = _delta_uso(snap_iniziale, getattr(backend, "uso_totale", {}) or {})
+    riga = formatta_riepilogo_uso(
+        delta,
+        getattr(backend, "model_name", "") or getattr(backend, "model", ""),
+        getattr(backend, "kind", "sconosciuto"),
+    )
+    if not riga:
+        return
+    console.print()
+    for r in riga.splitlines():
+        console.print(f"[dim]{r}[/dim]")
+
+
 def run_agente(domanda: str, backend) -> str:
     """
     Loop ReAct trasparente con conferma interattiva.
@@ -227,9 +260,10 @@ def run_agente(domanda: str, backend) -> str:
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user",   "content": domanda},
     ]
-    step         = 0
-    ops_eseguite = 0
-    testo        = ""
+    step           = 0
+    ops_eseguite   = 0
+    testo          = ""
+    snap_iniziale  = _snapshot_uso(backend)
 
     console.rule("[dim]avvio agente[/dim]")
 
@@ -261,6 +295,7 @@ def run_agente(domanda: str, backend) -> str:
                 risposta = _chiedi_conferma_utente(testo)
 
                 if risposta is None:
+                    _stampa_riepilogo_costo(backend, snap_iniziale)
                     return "Operazione annullata dall'utente."
 
                 messages.append({"role": "assistant", "content": testo})
@@ -269,6 +304,7 @@ def run_agente(domanda: str, backend) -> str:
                 continue
 
             console.print(f"[dim]└─ completato in {step} step, {ops_eseguite} operazioni[/dim]")
+            _stampa_riepilogo_costo(backend, snap_iniziale)
             console.rule()
             return testo.strip()
 
@@ -312,5 +348,6 @@ def run_agente(domanda: str, backend) -> str:
             console.print("[dim]Aumenta con FILEAI_MAX_STEPS o nelle Impostazioni.[/dim]")
             break
 
+    _stampa_riepilogo_costo(backend, snap_iniziale)
     console.rule()
     return testo.strip()
