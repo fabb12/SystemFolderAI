@@ -67,7 +67,10 @@ def lista_modelli_disponibili(host: str | None = None) -> list[str]:
 class BackendLMStudio(BaseBackend):
     """Backend per LM Studio (API OpenAI chat/completions)."""
 
+    kind = "lmstudio"
+
     def __init__(self, model: str, host: str | None = None):
+        super().__init__()
         try:
             import requests  # noqa: F401
         except ImportError as e:
@@ -107,6 +110,13 @@ class BackendLMStudio(BaseBackend):
                 f"Errore LM Studio ({self.host}): {e}\n"
                 "Verifica che il server sia avviato (Developer → Start Server)."
             ) from e
+
+        usage = data.get("usage") or {}
+        self.aggiorna_uso(
+            input_tokens  = usage.get("prompt_tokens",     0) or 0,
+            output_tokens = usage.get("completion_tokens", 0) or 0,
+        )
+
         choice = (data.get("choices") or [{}])[0]
         msg = choice.get("message") or {}
 
