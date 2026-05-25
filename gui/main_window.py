@@ -927,7 +927,7 @@ class MainWindow(QMainWindow):
             self._info("Operazione annullata")
             answer = "__CANCEL__"
         elif text.lower() in ("s", "si", "sì", "ok", "y", "yes", "procedi", "vai", "continua"):
-            answer = "Sì, procedi con il piano che hai proposto."
+            answer = "Sì, procedi con il piano che hai proposto. ESEGUI I TOOL necessari (sposta_file, crea_cartella, ecc.) per applicare il piano. NON limitarti a descriverlo."
             self._info("✓ Confermato → procedo")
         else:
             answer = text

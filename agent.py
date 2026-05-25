@@ -70,6 +70,7 @@ REGOLE:
 - NON usare wildcard (*.pdf) nei percorsi — usa sposta_per_estensione
 - sposta_file vuole percorso ESATTO di un singolo file
 - Rispondi in italiano
+- Dopo la conferma, DEVI usare i tool chiamandoli effettivamente. Non limitarti a dire di averlo fatto.
 """
 
 # ── Segnali di attesa conferma ────────────────────────────────────
@@ -208,7 +209,7 @@ def _chiedi_conferma_utente(testo_agente: str) -> str | None:
         return None
 
     if risposta.lower() in ("s", "sì", "si", "ok", "yes", "y", "procedi", "vai", "continua"):
-        return "Sì, procedi con il piano che hai proposto."
+        return "Sì, procedi con il piano che hai proposto. ESEGUI I TOOL necessari (sposta_file, crea_cartella, ecc.) per applicare il piano. NON limitarti a descriverlo."
 
     return risposta
 
