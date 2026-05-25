@@ -31,6 +31,7 @@ QUICK_ACTIONS = [
     ("cerca",     "🔎", "Cerca",            "Trova file per nome o contenuto"),
     ("info",      "📊", "Analizza",         "Rapporto completo: tipi, salute, duplicati"),
     ("contenuti", "🧠", "Capire contenuti", "Spiega di cosa trattano i documenti"),
+    ("immagini",  "🖼️", "Immagini",         "Analizza e ordina le immagini per significato"),
     ("backup",    "💾", "Backup",           "Crea un backup compresso della cartella"),
 ]
 
@@ -412,6 +413,7 @@ class MainWindow(QMainWindow):
             "cerca":     "Cosa cerchi?  (es: 'relazione 2024')",
             "info":      "Cartella da analizzare (Invio = cartella corrente)",
             "contenuti": "Cartella di cui capire i contenuti (Invio = cartella corrente)",
+            "immagini":  "Cartella di immagini da ordinare per significato (Invio = corrente)",
             "backup":    "Cartella di cui fare backup (Invio = cartella corrente)",
         }
         self._input.setPlaceholderText(prompts.get(action_id, "..."))
@@ -761,6 +763,19 @@ class MainWindow(QMainWindow):
                 f"raggruppali per argomento e suggerisci come organizzarli per tema."
             )
 
+        if a == "immagini":
+            target = raw.strip() or folder
+            return (
+                f"Esegui analisi_immagini_cartella su '{target}'. Identifica per "
+                f"ogni immagine soggetto e categoria visiva (Foto-Persone, "
+                f"Foto-Paesaggi, Screenshot, Documenti scansionati, Ricevute, "
+                f"Meme, ecc.). Poi proponi un piano: crea le sottocartelle "
+                f"suggerite dentro '{target}' e sposta ogni immagine nella "
+                f"propria con sposta_file (un file alla volta, percorso esatto). "
+                f"Scrivi 'Procedo con il piano?' e ASPETTA la conferma prima "
+                f"di muovere qualsiasi file."
+            )
+
         if a == "backup":
             target = raw.strip() or folder
             return (
@@ -834,7 +849,7 @@ class MainWindow(QMainWindow):
             self._info("L'agente ha terminato senza una risposta testuale.")
         self._status_label.setText("Pronto")
         # apertura automatica della cartella per azioni che la modificano
-        if self._running_action in ("organizza", "backup"):
+        if self._running_action in ("organizza", "backup", "immagini"):
             self._apri_cartella_output()
 
     def _on_failed(self, err: str) -> None:

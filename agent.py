@@ -34,6 +34,8 @@ Analisi (usa PRIMA di agire):
   analizza_cartella          → statistiche per estensione e dimensione
   analisi_semantica          → legge il CONTENUTO di un documento e capisce di cosa tratta
   analisi_semantica_cartella → analisi semantica di tutti i documenti in una cartella
+  analisi_immagine           → analizza VISIVAMENTE un'immagine (richiede modello vision)
+  analisi_immagini_cartella  → analisi visiva di tutte le immagini, raggruppa per significato
   trova_duplicati            → file duplicati per nome o contenuto (MD5)
   controlla_salute_cartella  → file temporanei, vuoti, vecchi, grandi, nascosti
 
