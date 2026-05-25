@@ -11,6 +11,7 @@ Dispatch automatico sul backend corrente:
 from __future__ import annotations
 
 import base64
+import io
 import json
 import os
 import re
@@ -33,6 +34,10 @@ _MEDIA_TYPE = {
     ".webp": "image/webp",
     ".heic": "image/heic",
 }
+
+# Formati accettati nativamente dall'API Anthropic.
+# bmp e heic NON sono supportati: vanno convertiti prima dell'invio.
+_CLAUDE_MEDIA_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
 
 # Limite: immagini più grandi vengono rifiutate (evita timeout e contesti enormi).
 _MAX_BYTES = 8 * 1024 * 1024  # 8 MB
@@ -101,6 +106,53 @@ def _leggi_immagine(path: Path) -> tuple[bytes, str]:
         )
     with open(path, "rb") as f:
         return f.read(), media
+
+
+def _converti_in_jpeg(data: bytes, ext: str) -> tuple[bytes, str]:
+    """
+    Converte un'immagine in JPEG via Pillow.
+    Solleva RuntimeError con messaggio chiaro se Pillow (o pillow-heif per
+    le HEIC) non è installato o se la conversione fallisce.
+    """
+    try:
+        from PIL import Image
+    except ImportError as e:
+        raise RuntimeError(
+            f"formato {ext} richiede Pillow per la conversione. "
+            f"Installa con: pip install pillow"
+            + (" pillow-heif" if ext == ".heic" else "")
+        ) from e
+
+    if ext == ".heic":
+        try:
+            from pillow_heif import register_heif_opener
+            register_heif_opener()
+        except ImportError as e:
+            raise RuntimeError(
+                "formato .heic richiede pillow-heif. "
+                "Installa con: pip install pillow-heif"
+            ) from e
+
+    try:
+        img = Image.open(io.BytesIO(data))
+        if img.mode not in ("RGB", "L"):
+            img = img.convert("RGB")
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=85, optimize=True)
+        return buf.getvalue(), "image/jpeg"
+    except Exception as e:
+        raise RuntimeError(f"conversione {ext} → JPEG fallita: {e}") from e
+
+
+def _adatta_al_backend(data: bytes, media: str, ext: str, kind: str) -> tuple[bytes, str]:
+    """
+    Normalizza l'immagine al formato accettato dal backend di destinazione.
+    Per Claude converte bmp/heic in JPEG (l'API Anthropic accetta solo
+    jpeg/png/gif/webp). Gli altri backend ricevono i byte originali.
+    """
+    if kind == "claude" and media not in _CLAUDE_MEDIA_TYPES:
+        return _converti_in_jpeg(data, ext)
+    return data, media
 
 
 # ── Dispatch per backend ─────────────────────────────────────────
@@ -192,6 +244,12 @@ def _classifica_immagine(path: Path) -> tuple[dict | None, str]:
         return None, f"ERRORE lettura: {e}"
 
     kind, model = parse_modello(get_default_modello())
+
+    try:
+        data, media = _adatta_al_backend(data, media, path.suffix.lower(), kind)
+    except Exception as e:
+        return None, f"ERRORE formato: {e}"
+
     try:
         if kind == "claude":
             raw = _classifica_claude(model, path.name, data, media)
@@ -200,7 +258,7 @@ def _classifica_immagine(path: Path) -> tuple[dict | None, str]:
         else:
             raw = _classifica_ollama(model, path.name, data, media)
     except Exception as e:
-        return None, f"ERRORE backend {kind}: {e}"
+        return None, f"ERRORE backend {kind} ({type(e).__name__}): {e}"
 
     if not raw or not raw.strip():
         return None, "il modello vision non ha restituito alcun testo"
@@ -281,10 +339,11 @@ def _format_risultato(d: dict) -> str:
 
 @registry.tool(
     description=(
-        "Analizza VISIVAMENTE un'immagine (jpg, png, gif, bmp, webp, heic) con un "
-        "modello multimodale e ne capisce il contenuto: soggetto, categoria, tag, "
-        "cartella consigliata. Richiede un modello vision: Claude (qualsiasi), "
-        "Ollama (llava, qwen2.5vl, llama3.2-vision), LM Studio (modello vision)."
+        "Analizza VISIVAMENTE un'immagine (jpg, png, gif, webp; bmp/heic richiedono "
+        "Pillow e per heic anche pillow-heif) con un modello multimodale e ne capisce "
+        "il contenuto: soggetto, categoria, tag, cartella consigliata. Richiede un "
+        "modello vision: Claude (qualsiasi), Ollama (llava, qwen2.5vl, llama3.2-vision), "
+        "LM Studio (modello vision)."
     ),
     params={"percorso": {"type": "string", "description": "Percorso dell'immagine"}},
     required=["percorso"],
