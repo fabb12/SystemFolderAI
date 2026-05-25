@@ -9,8 +9,8 @@ import re
 from html import escape
 from pathlib import Path
 
-from PyQt6.QtCore import Qt, QThread
-from PyQt6.QtGui import QAction, QKeySequence, QFont, QTextCursor, QDragEnterEvent, QDropEvent
+from PyQt6.QtCore import Qt, QThread, QUrl
+from PyQt6.QtGui import QAction, QKeySequence, QFont, QTextCursor, QDragEnterEvent, QDropEvent, QDesktopServices
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QLineEdit, QTextEdit, QFileDialog, QInputDialog,
@@ -127,6 +127,7 @@ class MainWindow(QMainWindow):
         self._worker: AgentWorker | None    = None
         self._thread: QThread | None        = None
         self._current_action                = "chat"
+        self._running_action                = "chat"   # azione del worker attivo
         self._waiting_confirm               = False
 
         # stato del renderer di output (ragionamento multi-riga)
@@ -580,10 +581,12 @@ class MainWindow(QMainWindow):
         m = re.match(r"^┌─\s*Step\s+(\d+).*$", text)
         if m:
             self._flush_thought()
+            n = m.group(1)
+            self._step_label.setText(f"Step {n}")
             self._append_html(
                 f"<div style='margin:14px 0 4px 0; color:{c['accent']}; "
                 f"font-weight:700; font-size:13px;'>"
-                f"▸ Step {m.group(1)}</div>"
+                f"▸ Step {n}</div>"
             )
             return
 
@@ -611,9 +614,11 @@ class MainWindow(QMainWindow):
         m = re.match(r"^│\s+(.+)$", text)
         if m:
             self._flush_thought()
+            body = m.group(1).strip()
+            self._status_label.setText(body[:80])
             self._append_html(
                 f"<div style='color:{c['cyan']}; margin:6px 0 2px 14px; "
-                f"font-size:12px;'>→ {escape(m.group(1).strip())}</div>"
+                f"font-size:12px;'>→ {escape(body)}</div>"
             )
             return
 
@@ -659,6 +664,32 @@ class MainWindow(QMainWindow):
             f"<div style='color:{color}; margin:2px 0; "
             f"white-space: pre-wrap;'>{escape(text)}</div>"
         )
+
+    def _show_action_banner(self) -> None:
+        """Mostra un banner nella chat con cartella e azione in corso."""
+        c      = COLORS
+        folder = self.cfg["default_folder"]
+        meta   = {a[0]: a for a in QUICK_ACTIONS}.get(self._running_action)
+        if not meta:
+            return
+        _, icon, label, _ = meta
+        self._append_html(
+            f"<div style='margin:10px 0 6px 0; padding:8px 14px; "
+            f"background:{c['bg_panel']}; border-left:3px solid {c['accent']}; "
+            f"border-radius:4px;'>"
+            f"<span style='color:{c['accent']}; font-weight:700;'>{icon} {label}</span>"
+            f"<span style='color:{c['text_dim']};'>  ·  {escape(folder)}</span>"
+            f"</div>"
+        )
+
+    def _apri_cartella_output(self) -> None:
+        """Apre la cartella corrente nel file manager del sistema."""
+        folder = self.cfg["default_folder"]
+        ok = QDesktopServices.openUrl(QUrl.fromLocalFile(folder))
+        if ok:
+            self._info(f"📂 Cartella aperta: {folder}")
+        else:
+            self._info(f"⚠ Impossibile aprire la cartella: {folder}")
 
     def _info(self, text: str) -> None:
         self._status_label.setText(text)
@@ -759,9 +790,17 @@ class MainWindow(QMainWindow):
         self._start_worker(prompt)
 
     def _start_worker(self, prompt: str) -> None:
+        self._running_action = self._current_action
+        self._thought_buffer = []
+        self._in_thought     = False
+
         self._send_btn.setEnabled(False)
         self._stop_btn.setEnabled(True)
         self._status_label.setText("Elaborazione in corso…")
+        self._step_label.setText("")
+
+        # banner nella chat con la cartella e l'azione corrente
+        self._show_action_banner()
 
         self._thread = QThread(self)
         self._worker = AgentWorker(
@@ -776,7 +815,7 @@ class MainWindow(QMainWindow):
         self._worker.confirm.connect(self._on_confirm_request)
         self._worker.finished.connect(self._on_finished)
         self._worker.failed.connect(self._on_failed)
-        # cleanup
+        # cleanup: quit il thread quando il worker ha finito, poi riabilita la UI
         self._worker.finished.connect(self._thread.quit)
         self._worker.failed.connect(self._thread.quit)
         self._thread.finished.connect(self._on_thread_finished)
@@ -785,14 +824,24 @@ class MainWindow(QMainWindow):
 
     def _on_finished(self, risposta: str) -> None:
         self._flush_thought()
+        # FIX: disabilita Stop subito — non aspettare _on_thread_finished perché
+        # tra i due segnali c'è un delay Qt visibile all'utente.
+        self._stop_btn.setEnabled(False)
+        self._step_label.setText("")
         if risposta and risposta.strip():
             self._agent_final(risposta)
         else:
             self._info("L'agente ha terminato senza una risposta testuale.")
         self._status_label.setText("Pronto")
+        # apertura automatica della cartella per azioni che la modificano
+        if self._running_action in ("organizza", "backup"):
+            self._apri_cartella_output()
 
     def _on_failed(self, err: str) -> None:
         self._flush_thought()
+        # FIX: stessa cosa — disabilita Stop immediatamente
+        self._stop_btn.setEnabled(False)
+        self._step_label.setText("")
         c = COLORS
         self._append_html(
             f"<div style='margin: 10px 0; padding: 10px 14px; "
@@ -816,7 +865,8 @@ class MainWindow(QMainWindow):
         self._worker = None
         self._waiting_confirm = False
         self._send_btn.setEnabled(True)
-        self._stop_btn.setEnabled(False)
+        self._stop_btn.setEnabled(False)   # ridondante ma sicuro
+        self._step_label.setText("")
         self._input.setPlaceholderText("Scrivi una richiesta...  (Invio per inviare)")
 
     def _on_stop(self) -> None:

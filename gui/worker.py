@@ -120,8 +120,9 @@ class AgentWorker(QObject):
         new_console = Console(file=stream, force_terminal=False,
                               color_system=None, width=120, soft_wrap=True)
 
-        old_console = agent_mod.console
-        old_confirm = agent_mod._chiedi_conferma_utente
+        old_console     = agent_mod.console
+        old_confirm     = agent_mod._chiedi_conferma_utente
+        old_should_stop = agent_mod._should_stop
         agent_mod.console = new_console
 
         # 2) sostituisco la funzione di conferma con una versione Qt
@@ -136,11 +137,14 @@ class AgentWorker(QObject):
 
         agent_mod._chiedi_conferma_utente = _gui_confirm
 
+        # 3) consente allo Stop button di interrompere il loop tra uno step
+        #    e l'altro senza chiamare thread.terminate()
+        agent_mod._should_stop = lambda: QThread.currentThread().isInterruptionRequested()
+
         try:
             try:
                 backend = crea_backend(self._model_spec)
             except Exception as e:
-                # errore di inizializzazione: messaggio chiaro alla GUI
                 self.failed.emit(f"Inizializzazione modello '{self._model_spec}' fallita.\n\n{e}")
                 return
             self.output.emit(f"🤖 Backend pronto: {backend}")
@@ -151,5 +155,6 @@ class AgentWorker(QObject):
                 stream.flush()
             except Exception:
                 pass
-            agent_mod.console = old_console
+            agent_mod.console      = old_console
             agent_mod._chiedi_conferma_utente = old_confirm
+            agent_mod._should_stop = old_should_stop

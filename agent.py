@@ -4,6 +4,7 @@ agent.py — Loop ReAct con conferma interattiva
 
 import os
 from pathlib import Path
+from typing import Callable
 from rich.console import Console
 from rich.panel import Panel
 
@@ -91,6 +92,10 @@ _OPS_SCRITTURA = {
     "sposta_file", "copia_file", "sposta_per_estensione",
     "comprime_zip", "estrai_archivio", "crea_backup",
 }
+
+# Callback di interruzione: la GUI la sovrascrive con il check del QThread.
+# Viene chiamata all'inizio di ogni step; se ritorna True il loop si interrompe.
+_should_stop: "Callable[[], bool]" = lambda: False
 
 
 # ── UI helpers ────────────────────────────────────────────────────
@@ -222,10 +227,14 @@ def run_agente(domanda: str, backend) -> str:
     ]
     step         = 0
     ops_eseguite = 0
+    testo        = ""
 
     console.rule("[dim]avvio agente[/dim]")
 
     while True:
+        if _should_stop():
+            console.print("\n[yellow]⚠️  Stop richiesto — agente interrotto.[/yellow]")
+            break
         step += 1
         console.print(f"\n[dim bold]┌─ Step {step} {'─'*40}[/dim bold]")
 
