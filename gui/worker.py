@@ -39,7 +39,11 @@ class _SignalStream(io.TextIOBase):
     def write(self, s: str) -> int:
         if not isinstance(s, str):
             s = str(s)
-        self._buf += s
+        # rich usa `\r` per sovrascrivere righe (es. spinner "⏳ Elaborazione…").
+        # In un terminale vero non si vedrebbero; nella GUI invece restano come
+        # spazzatura. Le trattiamo come fine-riga così il filtro a valle può
+        # scartarle prima di renderizzarle.
+        self._buf += s.replace("\r", "\n")
         while "\n" in self._buf:
             line, self._buf = self._buf.split("\n", 1)
             self._emit(_strip_ansi(line))
