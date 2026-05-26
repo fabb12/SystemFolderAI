@@ -66,8 +66,17 @@ _PROMPT_VISIONE = (
     '{"soggetto":"Tramonto sul mare con palme","categoria":"Foto-Paesaggi",'
     '"sottocategoria":"Spiaggia","tag":["tramonto","mare","vacanza"],'
     '"cartella_consigliata":"Foto/Paesaggi"}\n'
-    "Nome file: {nome}"
+    "Nome file: __NOME__"
 )
+
+
+def _prompt_per(nome_file: str) -> str:
+    """
+    Sostituisce il placeholder del nome file senza usare str.format(): il
+    prompt contiene graffe letterali JSON che farebbero esplodere format()
+    con KeyError sulle chiavi dell'esempio.
+    """
+    return _PROMPT_VISIONE.replace("__NOME__", nome_file)
 
 
 # Alias inglese → italiano: alcuni modelli (Haiku, llava piccoli) tendono a
@@ -160,7 +169,7 @@ def _adatta_al_backend(data: bytes, media: str, ext: str, kind: str) -> tuple[by
 def _classifica_ollama(model: str, nome_file: str, data: bytes, media: str) -> str:
     from fileai.backends.ollama import _load_real_ollama, _num_ctx
     _ol = _load_real_ollama()
-    prompt = _PROMPT_VISIONE.format(nome=nome_file)
+    prompt = _prompt_per(nome_file)
     risp = _ol.chat(
         model=model,
         messages=[
@@ -189,7 +198,7 @@ def _classifica_claude(model: str, nome_file: str, data: bytes, media: str) -> s
         raise RuntimeError("ANTHROPIC_API_KEY non impostata")
     client = _anthropic.Anthropic(api_key=api_key)
     b64 = base64.standard_b64encode(data).decode("ascii")
-    prompt = _PROMPT_VISIONE.format(nome=nome_file)
+    prompt = _prompt_per(nome_file)
     risp = client.messages.create(
         model=model,
         max_tokens=1024,
@@ -214,7 +223,7 @@ def _classifica_lmstudio(model: str, nome_file: str, data: bytes, media: str) ->
         raise RuntimeError("Pacchetto 'requests' non installato") from e
     host = (os.environ.get("LMSTUDIO_HOST") or "http://localhost:1234").rstrip("/")
     b64 = base64.standard_b64encode(data).decode("ascii")
-    prompt = _PROMPT_VISIONE.format(nome=nome_file)
+    prompt = _prompt_per(nome_file)
     payload = {
         "model": model or "local-model",
         "messages": [
