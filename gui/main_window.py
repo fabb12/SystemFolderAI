@@ -10,7 +10,7 @@ from html import escape
 from pathlib import Path
 
 from PyQt6.QtCore import Qt, QThread, QUrl
-from PyQt6.QtGui import QAction, QKeySequence, QFont, QTextCursor, QDragEnterEvent, QDropEvent, QDesktopServices
+from PyQt6.QtGui import QAction, QKeySequence, QFont, QTextCursor, QDragEnterEvent, QDropEvent, QDesktopServices, QIcon
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QLineEdit, QTextEdit, QFileDialog, QInputDialog,
@@ -20,6 +20,28 @@ from PyQt6.QtWidgets import (
 from gui.styles import COLORS, dark_qss
 from gui.worker import AgentWorker
 from gui.settings_dialog import SettingsDialog, load_gui_config
+
+
+def _icona_app() -> QIcon:
+    """Trova l'icona sia in esecuzione da sorgente sia da bundle PyInstaller."""
+    import sys
+
+    candidati = []
+    base = getattr(sys, "_MEIPASS", None)  # cartella temp del bundle onefile
+    if base:
+        candidati.append(Path(base) / "assets" / "icona.ico")
+        candidati.append(Path(base) / "assets" / "icona.png")
+    # da sorgente: gui/ -> root repo -> assets/
+    root = Path(__file__).resolve().parent.parent
+    candidati += [root / "assets" / "icona.ico", root / "assets" / "icona.png"]
+    # accanto all'eseguibile (onedir)
+    exe_dir = Path(sys.executable).resolve().parent
+    candidati += [exe_dir / "assets" / "icona.ico", exe_dir / "_internal" / "assets" / "icona.ico"]
+
+    for c in candidati:
+        if c.exists():
+            return QIcon(str(c))
+    return QIcon()
 
 
 # ── Quick actions sidebar ─────────────────────────────────────────
@@ -116,6 +138,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("FileAI — Gestione intelligente con AI")
+        self.setWindowIcon(_icona_app())
         self.resize(1180, 740)
         self.setMinimumSize(880, 560)
         self.setAcceptDrops(True)
@@ -986,6 +1009,7 @@ def run() -> int:
     import sys
     app = QApplication.instance() or QApplication(sys.argv)
     app.setApplicationName("FileAI")
+    app.setWindowIcon(_icona_app())
     app.setStyleSheet(dark_qss())
     # font di base
     f = QFont("Segoe UI")

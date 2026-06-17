@@ -64,6 +64,12 @@ for _doc in ("MANUALE_UTENTE.md", "README.md", "CLAUDE.md"):
 for _g in (ROOT / "gui").glob("*.py"):
     datas.append((str(_g), "gui"))
 
+# icona caricata a runtime per la finestra (oltre a quella dell'exe)
+for _ico in ("icona.ico", "icona.png"):
+    _p = ROOT / "assets" / _ico
+    if _p.exists():
+        datas.append((str(_p), "assets"))
+
 # ── hidden imports + dati delle librerie di terze parti ───────────────────
 hiddenimports = []
 binaries = []
@@ -121,7 +127,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    # icon="assets/icona.ico",   # opzionale: scommenta se aggiungi un'icona
+    icon=str(ROOT / "assets" / "icona.ico"),
 )
 
 coll = COLLECT(
