@@ -55,6 +55,7 @@ QUICK_ACTIONS = [
     ("contenuti", "🧠", "Capire contenuti", "Spiega di cosa trattano i documenti"),
     ("immagini",  "🖼️", "Immagini",         "Analizza e ordina le immagini per significato"),
     ("backup",    "💾", "Backup",           "Crea un backup compresso della cartella"),
+    ("annulla",   "↩️", "Annulla",          "Rollback: ripristina le ultime operazioni eseguite"),
 ]
 
 
@@ -438,6 +439,7 @@ class MainWindow(QMainWindow):
             "contenuti": "Cartella di cui capire i contenuti (Invio = cartella corrente)",
             "immagini":  "Cartella di immagini da ordinare per significato (Invio = corrente)",
             "backup":    "Cartella di cui fare backup (Invio = cartella corrente)",
+            "annulla":   "Invio = annulla l'ultima operazione · numero = quante annullarne",
         }
         self._input.setPlaceholderText(prompts.get(action_id, "..."))
         self._input.setFocus()
@@ -807,6 +809,15 @@ class MainWindow(QMainWindow):
                 f"riepiloga numero file e dimensione."
             )
 
+        if a == "annulla":
+            quante = raw.strip()
+            n = quante if quante.isdigit() else "1"
+            return (
+                f"Mostra prima la cronologia con mostra_cronologia, poi annulla "
+                f"le ultime {n} operazioni eseguite con annulla_ultima_operazione "
+                f"(quante={n}) e riepiloga cosa è stato ripristinato."
+            )
+
         return raw
 
     def _on_send(self) -> None:
@@ -845,6 +856,7 @@ class MainWindow(QMainWindow):
             prompt=prompt,
             model_spec=self.cfg["modello"],
             max_steps=int(self.cfg.get("max_steps", 60)),
+            solo_lettura=(self._running_action == "chat"),
         )
         self._worker.moveToThread(self._thread)
 
@@ -872,7 +884,7 @@ class MainWindow(QMainWindow):
             self._info("L'agente ha terminato senza una risposta testuale.")
         self._status_label.setText("Pronto")
         # apertura automatica della cartella per azioni che la modificano
-        if self._running_action in ("organizza", "backup", "immagini"):
+        if self._running_action in ("organizza", "backup", "immagini", "annulla"):
             self._apri_cartella_output()
 
     def _on_failed(self, err: str) -> None:

@@ -36,11 +36,12 @@ SystemFolderAI/
 ├── claude.py              → fileai.backends.claude     (Claude API)
 ├── lmstudio.py            → fileai.backends.lmstudio   (LM Studio, API OpenAI)
 │
-├── filesystem.py          → fileai.tools.filesystem    (move/copy/list/search)
+├── filesystem.py          → fileai.tools.filesystem    (move/copy/list/search, app portable)
 ├── analysis.py            → fileai.tools.analysis      (magic bytes, statistiche)
 ├── semantic.py            → fileai.tools.semantic      (analisi LLM contenuto)
 ├── health.py              → fileai.tools.health        (duplicati, salute)
 ├── compression.py         → fileai.tools.compression   (zip/backup/estrazione)
+├── history.py             → fileai.tools.history       (cronologia + rollback/annulla)
 │
 └── gui/
     ├── _bootstrap.py      ← monta il package virtuale fileai
@@ -67,6 +68,19 @@ schema JSON viene passato al modello.
 Limiti runtime: `MAX_STEPS` (env `FILEAI_MAX_STEPS`, default 60),
 `MAX_TOOL_CHARS` (env `FILEAI_MAX_TOOL_CHARS`, default 24000).
 
+`run_agente(domanda, backend, solo_lettura=False)`. Con `solo_lettura=True`
+(chat libera GUI + comando `chat` CLI) le operazioni in `_OPS_MODIFICANTI`
+NON vengono eseguite: l'agente dà solo informazioni e rimanda alle funzioni
+dedicate.
+
+### Rollback / cronologia (`history.py`)
+I tool di modifica (sposta/copia/rinomina/crea_cartella/comprimi/backup)
+registrano i *passi inversi* in `~/.fileai_history.json` via
+`registra_operazione(...)`. `annulla_ultima_operazione(quante)` li riapplica
+in ordine inverso. Le eliminazioni NON sono reversibili. Le cartelle di
+destinazione esistenti vengono riutilizzate (`crea_cartella`/`mkdir exist_ok`),
+e `rileva_app_portable` individua cartelle con app portable da NON dividere.
+
 ### Backend astratto (`base.py`)
 Ogni backend espone solo `chat(messages) → (testo, tool_calls, raw_msg)`.
 I formati specifici (OpenAI, Anthropic) sono normalizzati internamente.
@@ -83,9 +97,10 @@ cartella corrente.
 
 ## Configurazione
 
-Due file persistenti:
+File persistenti:
 - `~/.fileai.json` — modello CLI default (`get_default_modello`)
 - `~/.fileai_gui.json` — preferenze GUI (modello, host, api key, font, ecc.)
+- `~/.fileai_history.json` — journal operazioni per il rollback (`history.py`)
 
 Variabili d'ambiente:
 - `OLLAMA_HOST`, `LMSTUDIO_HOST`, `ANTHROPIC_API_KEY`

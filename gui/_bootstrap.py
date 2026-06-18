@@ -45,6 +45,7 @@ _TOOL_MODULES = {
     "health":      "fileai.tools.health",
     "compression": "fileai.tools.compression",
     "vision":      "fileai.tools.vision",
+    "history":     "fileai.tools.history",
 }
 
 

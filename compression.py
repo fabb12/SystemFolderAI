@@ -16,6 +16,15 @@ S = {"type": "string"}
 B = {"type": "boolean"}
 
 
+def _journal(tipo: str, descrizione: str, passi_inversi: list[dict]) -> None:
+    """Registra un'operazione reversibile nella cronologia (best-effort)."""
+    try:
+        from fileai.tools.history import registra_operazione
+        registra_operazione(tipo, descrizione, passi_inversi)
+    except Exception:
+        pass
+
+
 # ── Helpers ───────────────────────────────────────────────────────
 
 def _human_size(byte: int) -> str:
@@ -84,6 +93,8 @@ def comprime_zip(origine: str, destinazione: str = "") -> str:
 
         dim_zip = out.stat().st_size
         ratio   = (1 - dim_zip / dim_orig) * 100 if dim_orig else 0
+        _journal("comprime_zip", f"Creato archivio {out}",
+                 [{"op": "rm", "path": str(out)}])
         return (
             f"✅ Archivio creato: {out}\n"
             f"   File compressi : {n_file}\n"
@@ -202,6 +213,8 @@ def crea_backup(cartella: str, in_dove: str = "", compresso: bool = True) -> str
                 for f in src.rglob("*"):
                     if f.is_file():
                         zf.write(f, f.relative_to(src.parent))
+            _journal("crea_backup", f"Creato backup {out}",
+                     [{"op": "rm", "path": str(out)}])
             return (
                 f"✅ Backup compresso creato\n"
                 f"   Archivio : {out}\n"
@@ -213,6 +226,8 @@ def crea_backup(cartella: str, in_dove: str = "", compresso: bool = True) -> str
         if out.exists():
             return f"ERRORE: backup già esistente: {out}"
         shutil.copytree(str(src), str(out))
+        _journal("crea_backup", f"Creato backup (copia) {out}",
+                 [{"op": "rm", "path": str(out)}])
         n_file, dim_orig = _conta_contenuto(out)
         return (
             f"✅ Backup (copia) creato\n"
