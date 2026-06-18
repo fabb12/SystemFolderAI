@@ -44,15 +44,18 @@ Navigazione:
   cerca_file        → cerca per nome/estensione/contenuto
   leggi_file        → leggi contenuto testo
   identifica_file   → tipo reale di un singolo file
+  rileva_app_portable → individua cartelle con app portable (da NON dividere)
+  mostra_cronologia → elenca le ultime operazioni eseguite
   info_sistema      → info OS
 
 Azioni (richiedono conferma):
-  crea_cartella         → crea cartella
+  crea_cartella         → crea cartella (se esiste già, la riutilizza)
   sposta_per_estensione → sposta tutti i file di un'estensione (USA QUESTO, non wildcard)
   sposta_file           → sposta UN file singolo (percorso ESATTO, NO wildcard *.ext)
   rinomina_file         → rinomina
   copia_file            → copia
   elimina_file          → elimina (richiede conferma=true)
+  annulla_ultima_operazione → rollback: annulla le ultime operazioni (spostamenti, ecc.)
 
 Archivi e backup:
   comprime_zip      → comprime file o cartella in archivio .zip
@@ -61,17 +64,46 @@ Archivi e backup:
 
 PROCEDURA per organizzare:
 1. scansione_intelligente → vedi tipo reale
-2. (opzionale) analisi_semantica_cartella → capisci il contenuto
-3. (opzionale) trova_duplicati → identifica sprechi
-4. Proponi il piano con percorsi esatti e scrivi "Procedo con il piano?"
-5. Dopo conferma → esegui con sposta_per_estensione / sposta_file
+2. rileva_app_portable → individua app portable da NON toccare
+3. (opzionale) analisi_semantica_cartella → capisci il contenuto
+4. (opzionale) trova_duplicati → identifica sprechi
+5. Proponi il piano con percorsi esatti e scrivi "Procedo con il piano?"
+6. Dopo conferma → esegui con sposta_per_estensione / sposta_file
 
 REGOLE:
 - NON usare wildcard (*.pdf) nei percorsi — usa sposta_per_estensione
 - sposta_file vuole percorso ESATTO di un singolo file
+- Se una cartella di destinazione esiste già, RIUTILIZZALA: non crearne una nuova
+  con suffissi tipo "_1". crea_cartella riusa automaticamente quelle esistenti.
+- APP PORTABLE: se una cartella contiene un'applicazione portable (un .exe con
+  .dll/dati, o un eseguibile insieme a file di supporto), NON dividere i suoi
+  file per tipo: lasciali TUTTI INSIEME o l'app si rompe. Controlla con
+  rileva_app_portable ed escludi quelle cartelle dal piano.
+- Per annullare operazioni fatte usa annulla_ultima_operazione (rollback).
 - Rispondi in italiano
 - Dopo la conferma, DEVI usare i tool chiamandoli effettivamente. Non limitarti a dire di averlo fatto.
 """
+
+# Istruzioni aggiuntive per la modalità chat libera (sola lettura): l'agente
+# fornisce SOLO informazioni e non esegue alcuna operazione di modifica.
+SYSTEM_PROMPT_SOLO_LETTURA = """
+
+MODALITÀ CHAT LIBERA — SOLO INFORMAZIONI:
+- Sei in chat libera: NON devi eseguire NESSUNA operazione di modifica
+  (sposta, crea, rinomina, copia, elimina, comprimi, backup, annulla, estrai).
+- Puoi solo dare informazioni e fare analisi (lista_cartella, cerca_file,
+  leggi_file, analisi varie, scansione, salute, duplicati).
+- Se l'utente chiede un'azione che modifica i file, NON eseguirla: spiega cosa
+  comporterebbe e rimandalo alla funzionalità dedicata (es. l'azione
+  "Organizza", "Backup", "Immagini" o "Annulla" nella barra laterale, oppure i
+  comandi CLI 'organizza', 'crea', 'chiedi', 'annulla').
+"""
+
+
+def _costruisci_system_prompt(solo_lettura: bool) -> str:
+    if solo_lettura:
+        return SYSTEM_PROMPT + SYSTEM_PROMPT_SOLO_LETTURA
+    return SYSTEM_PROMPT
 
 # ── Segnali di attesa conferma ────────────────────────────────────
 
@@ -88,12 +120,14 @@ _OPS_MODIFICANTI = {
     "crea_cartella", "sposta_file", "sposta_per_estensione",
     "copia_file", "rinomina_file", "elimina_file",
     "comprime_zip", "estrai_archivio", "crea_backup",
+    "annulla_ultima_operazione",
 }
 
 _OPS_SCRITTURA = {
     "crea_cartella", "rinomina_file", "elimina_file",
     "sposta_file", "copia_file", "sposta_per_estensione",
     "comprime_zip", "estrai_archivio", "crea_backup",
+    "annulla_ultima_operazione",
 }
 
 # Callback di interruzione: la GUI la sovrascrive con il check del QThread.
@@ -115,7 +149,7 @@ def _descrivi_tool(nome: str, argomenti: dict) -> str:
 
     if nome in ("analizza_cartella", "scansione_intelligente",
                 "analisi_semantica_cartella", "trova_duplicati",
-                "controlla_salute_cartella"):
+                "controlla_salute_cartella", "rileva_app_portable"):
         chiave = "cartella" if "cartella" in argomenti else "percorso"
         return f"{icona} {verbo} {argomenti.get(chiave,'?')}"
 
@@ -249,16 +283,18 @@ def _stampa_riepilogo_costo(backend, snap_iniziale: dict) -> None:
         console.print(f"[dim]{r}[/dim]")
 
 
-def run_agente(domanda: str, backend) -> str:
+def run_agente(domanda: str, backend, solo_lettura: bool = False) -> str:
     """
     Loop ReAct trasparente con conferma interattiva.
 
     - Mostra ragionamento, tool calls e risultati in tempo reale.
     - Quando l'agente propone un piano aspetta la risposta dell'utente
       invece di uscire.
+    - Con `solo_lettura=True` (chat libera) le operazioni di modifica vengono
+      bloccate: l'agente può solo dare informazioni.
     """
     messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": _costruisci_system_prompt(solo_lettura)},
         {"role": "user",   "content": domanda},
     ]
     step           = 0
@@ -331,10 +367,21 @@ def run_agente(domanda: str, backend) -> str:
             console.print("[dim]│[/dim]")
             console.print(f"[dim]│[/dim]  {_descrivi_tool(nome, argomenti)}")
 
-            risultato = registry.esegui(nome, argomenti)
-
-            if nome in _OPS_MODIFICANTI:
-                ops_eseguite += 1
+            # In chat libera (sola lettura) le operazioni di modifica sono
+            # bloccate: l'agente deve limitarsi a informare e rimandare alle
+            # funzionalità dedicate.
+            if solo_lettura and nome in _OPS_MODIFICANTI:
+                risultato = (
+                    "ℹ️  In chat libera non eseguo operazioni di modifica. "
+                    "Posso solo darti informazioni. Per eseguire questa azione usa "
+                    "la funzionalità dedicata (Organizza, Backup, Immagini o Annulla "
+                    "nella barra laterale; oppure i comandi CLI 'organizza', 'crea', "
+                    "'chiedi', 'annulla')."
+                )
+            else:
+                risultato = registry.esegui(nome, argomenti)
+                if nome in _OPS_MODIFICANTI:
+                    ops_eseguite += 1
 
             _mostra_risultato(nome, risultato)
 

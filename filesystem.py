@@ -12,6 +12,40 @@ B = {"type": "boolean"}
 I = {"type": "integer"}
 
 
+def _journal(tipo: str, descrizione: str, passi_inversi: list[dict]) -> None:
+    """
+    Registra un'operazione reversibile nel journal della cronologia.
+    Import lazy + tollerante agli errori: la registrazione non deve mai
+    compromettere l'operazione già eseguita.
+    """
+    try:
+        from fileai.tools.history import registra_operazione
+        registra_operazione(tipo, descrizione, passi_inversi)
+    except Exception:
+        pass
+
+
+# Estensioni che identificano un'applicazione "portable" (eseguibile + file
+# di supporto nella stessa cartella). I file di un'app portable NON vanno
+# separati per tipo: devono restare insieme o l'app smette di funzionare.
+_EXE_EXT     = {".exe", ".app", ".appimage", ".com", ".msi"}
+_SUPPORT_EXT = {".dll", ".so", ".dylib", ".pak", ".dat", ".bin"}
+
+
+def _is_app_portable(folder: Path) -> tuple[bool, str]:
+    """Euristica: la cartella contiene direttamente un'app portable?"""
+    try:
+        files = [f for f in folder.iterdir() if f.is_file()]
+    except Exception:
+        return False, ""
+    exts = {f.suffix.lower() for f in files}
+    if exts & _EXE_EXT:
+        return True, "contiene un eseguibile (.exe/.app/.appimage)"
+    if (exts & _SUPPORT_EXT) and len(files) >= 2:
+        return True, "contiene librerie/dati di supporto (.dll/.so/...) insieme ad altri file"
+    return False, ""
+
+
 @registry.tool(
     description="Elenca file e sottocartelle. Usalo per vedere cosa c'è prima di agire.",
     params={
@@ -59,8 +93,12 @@ def crea_cartella(percorso: str) -> str:
     try:
         path = Path(percorso).expanduser().resolve()
         if path.exists():
-            return f"La cartella esiste già: {path}"
+            if path.is_dir():
+                return f"ℹ️  Cartella già esistente: la riutilizzo → {path}"
+            return f"ERRORE: esiste già un file (non cartella) con questo nome: {path}"
         path.mkdir(parents=True, exist_ok=True)
+        _journal("crea_cartella", f"Creata cartella {path}",
+                 [{"op": "rmdir", "path": str(path)}])
         return f"✅ Cartella creata: {path}"
     except PermissionError:
         return f"ERRORE: permesso negato per {percorso}"
@@ -89,6 +127,14 @@ def sposta_per_estensione(cartella: str, estensione: str, destinazione: str) -> 
         if not src_dir.exists():
             return f"ERRORE: cartella origine non trovata: {src_dir}"
 
+        # Protezione app portable: se la cartella origine è un'app portable,
+        # spostarne i file la romperebbe. Non dividere: lascia tutto insieme.
+        is_port, motivo = _is_app_portable(src_dir)
+        if is_port:
+            return (f"⚠️  Operazione annullata: '{src_dir}' sembra un'applicazione "
+                    f"portable ({motivo}). I suoi file NON vanno divisi: "
+                    f"lasciali insieme per non romperla.")
+
         ext = estensione.strip().lower()
         if not ext.startswith("."):
             ext = "." + ext
@@ -99,8 +145,10 @@ def sposta_per_estensione(cartella: str, estensione: str, destinazione: str) -> 
 
         dest_dir.mkdir(parents=True, exist_ok=True)
         spostati, errori = [], []
+        passi_inversi = []
 
         for f in file_list:
+            origine_str = str(f)
             dest_file = dest_dir / f.name
             if dest_file.exists():
                 base, count = dest_file.stem, 1
@@ -110,8 +158,14 @@ def sposta_per_estensione(cartella: str, estensione: str, destinazione: str) -> 
             try:
                 shutil.move(str(f), str(dest_file))
                 spostati.append(f.name)
+                passi_inversi.append({"op": "move", "from": str(dest_file), "to": origine_str})
             except Exception as e:
                 errori.append(f"{f.name}: {e}")
+
+        if passi_inversi:
+            _journal("sposta_per_estensione",
+                     f"Spostati {len(passi_inversi)} file {ext} in {dest_dir}",
+                     passi_inversi)
 
         righe = [f"✅ Spostati {len(spostati)} file {ext}  →  {dest_dir}"]
         for n in spostati[:10]:
@@ -150,6 +204,8 @@ def sposta_file(origine: str, destinazione: str) -> str:
             return f"ERRORE: destinazione già esistente: {dest}"
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.move(str(src), str(dest))
+        _journal("sposta_file", f"Spostato {src.name} in {dest}",
+                 [{"op": "move", "from": str(dest), "to": str(src)}])
         return f"✅ Spostato: {src.name}  →  {dest}"
     except PermissionError:
         return "ERRORE: permesso negato"
@@ -172,8 +228,14 @@ def copia_file(origine: str, destinazione: str) -> str:
         dest = Path(destinazione).expanduser().resolve()
         if not src.exists():
             return f"ERRORE: origine non trovata: {src}"
+        if dest.is_dir():
+            dest = dest / src.name
+        if dest.exists():
+            return f"ERRORE: destinazione già esistente: {dest}"
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copytree(str(src), str(dest)) if src.is_dir() else shutil.copy2(str(src), str(dest))
+        _journal("copia_file", f"Copiato {src.name} in {dest}",
+                 [{"op": "rm", "path": str(dest)}])
         return f"✅ Copiato: {src}  →  {dest}"
     except Exception as e:
         return f"ERRORE: {e}"
@@ -196,7 +258,10 @@ def rinomina_file(percorso: str, nuovo_nome: str) -> str:
             return f"ERRORE: file non trovato: {path}"
         if nuovo.exists():
             return f"ERRORE: '{nuovo_nome}' esiste già"
+        vecchio = str(path)
         path.rename(nuovo)
+        _journal("rinomina_file", f"Rinominato {path.name} in {nuovo_nome}",
+                 [{"op": "move", "from": str(nuovo), "to": vecchio}])
         return f"✅ Rinominato: {path.name}  →  {nuovo_nome}"
     except Exception as e:
         return f"ERRORE: {e}"
@@ -294,6 +359,56 @@ def leggi_file(percorso: str, max_righe: int = 50) -> str:
         if len(righe) > max_righe:
             testo += f"\n... ({len(righe)} righe totali)"
         return testo
+    except Exception as e:
+        return f"ERRORE: {e}"
+
+
+@registry.tool(
+    description=(
+        "Rileva cartelle che contengono applicazioni portable (es. un .exe con "
+        ".dll e file di dati). IMPORTANTE: i file di un'app portable NON vanno "
+        "divisi per tipo — vanno lasciati tutti insieme. Usa questo tool PRIMA "
+        "di organizzare per evitare di rompere applicazioni portable."
+    ),
+    params={
+        "cartella":  {**S, "description": "Cartella da controllare"},
+        "ricorsivo": {**B, "description": "Controlla anche le sottocartelle", "default": True},
+    },
+    required=["cartella"],
+    label=("🧩", "Cerco app portable in"),
+)
+def rileva_app_portable(cartella: str, ricorsivo: bool = True) -> str:
+    try:
+        path = Path(cartella).expanduser().resolve()
+        if not path.exists():
+            return f"ERRORE: percorso non trovato: {path}"
+        if not path.is_dir():
+            return f"ERRORE: '{path}' non è una cartella"
+
+        candidate = [path]
+        if ricorsivo:
+            candidate += [d for d in path.rglob("*") if d.is_dir()]
+        else:
+            candidate += [d for d in path.iterdir() if d.is_dir()]
+
+        trovate = []
+        for d in candidate:
+            ok, motivo = _is_app_portable(d)
+            if ok:
+                trovate.append((d, motivo))
+            if len(trovate) >= 50:
+                break
+
+        if not trovate:
+            return f"Nessuna applicazione portable rilevata in {path}."
+
+        righe = [f"🧩 Rilevate {len(trovate)} cartelle con app portable "
+                 f"(NON dividere i loro file, lasciali insieme):\n"]
+        for d, motivo in trovate:
+            righe.append(f"  📦 {d}  — {motivo}")
+        return "\n".join(righe)
+    except PermissionError:
+        return f"ERRORE: permesso negato per {cartella}"
     except Exception as e:
         return f"ERRORE: {e}"
 

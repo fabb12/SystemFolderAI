@@ -68,11 +68,13 @@ class AgentWorker(QObject):
     finished     = pyqtSignal(str)         # risposta finale
     failed       = pyqtSignal(str)         # eccezione
 
-    def __init__(self, prompt: str, model_spec: str, max_steps: int = 60):
+    def __init__(self, prompt: str, model_spec: str, max_steps: int = 60,
+                 solo_lettura: bool = False):
         super().__init__()
-        self._prompt      = prompt
-        self._model_spec  = model_spec
-        self._max_steps   = max_steps
+        self._prompt       = prompt
+        self._model_spec   = model_spec
+        self._max_steps    = max_steps
+        self._solo_lettura = solo_lettura
         self._confirm_ans: str | None = None
 
     @pyqtSlot(str)
@@ -148,7 +150,9 @@ class AgentWorker(QObject):
                 self.failed.emit(f"Inizializzazione modello '{self._model_spec}' fallita.\n\n{e}")
                 return
             self.output.emit(f"🤖 Backend pronto: {backend}")
-            risposta = agent_mod.run_agente(self._prompt, backend)
+            risposta = agent_mod.run_agente(
+                self._prompt, backend, solo_lettura=self._solo_lettura
+            )
             self.finished.emit(risposta or "")
         finally:
             try:
