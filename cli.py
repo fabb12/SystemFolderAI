@@ -164,7 +164,9 @@ def cmd_organizza(args, backend) -> None:
     risposta = run_agente(
         f"Analizza la cartella '{args.cartella}': usa prima scansione_intelligente, "
         f"poi proponi un piano di organizzazione con sottocartelle per tipo, "
-        f"aspetta conferma e poi esegui. Riassumi alla fine.",
+        f"aspetta conferma e poi esegui. Riassumi alla fine e ricorda all'utente "
+        f"che può chiederti di annullare tutto (rollback) o di modificare la "
+        f"disposizione semplicemente scrivendotelo.",
         backend,
     )
     _risultato("Organizzazione completata", risposta)
@@ -205,17 +207,6 @@ def cmd_chiedi(args, backend) -> None:
     _header("⚡ Esecuzione comando", args.comando)
     risposta = run_agente(args.comando, backend)
     _risultato("Completato", risposta)
-
-
-def cmd_annulla(args, backend) -> None:
-    _header("↩️  Annullamento operazioni (rollback)", f"Ultime {args.quante} operazioni")
-    risposta = run_agente(
-        f"Mostra prima la cronologia con mostra_cronologia, poi annulla le ultime "
-        f"{args.quante} operazioni con annulla_ultima_operazione (quante={args.quante}) "
-        f"e riepiloga cosa è stato ripristinato.",
-        backend,
-    )
-    _risultato("Rollback completato", risposta)
 
 
 def cmd_cronologia(args, backend) -> None:
@@ -315,13 +306,6 @@ ESEMPI:
     p.add_argument("comando", nargs="+")
     _add_modello(p)
     p.set_defaults(func=cmd_chiedi)
-
-    # annulla
-    p = sub.add_parser("annulla", help="Rollback: annulla le ultime operazioni eseguite")
-    p.add_argument("quante", nargs="?", type=int, default=1,
-                   help="Quante operazioni annullare (default: 1)")
-    _add_modello(p)
-    p.set_defaults(func=cmd_annulla)
 
     # cronologia
     p = sub.add_parser("cronologia", help="Mostra le ultime operazioni eseguite")

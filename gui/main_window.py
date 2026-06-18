@@ -55,7 +55,6 @@ QUICK_ACTIONS = [
     ("contenuti", "🧠", "Capire contenuti", "Spiega di cosa trattano i documenti"),
     ("immagini",  "🖼️", "Immagini",         "Analizza e ordina le immagini per significato"),
     ("backup",    "💾", "Backup",           "Crea un backup compresso della cartella"),
-    ("annulla",   "↩️", "Annulla",          "Rollback: ripristina le ultime operazioni eseguite"),
 ]
 
 
@@ -154,6 +153,9 @@ class MainWindow(QMainWindow):
         self._current_action                = "chat"
         self._running_action                = "chat"   # azione del worker attivo
         self._waiting_confirm               = False
+        # dopo un'operazione di modifica il prossimo messaggio libero viene
+        # inoltrato direttamente all'agente (rollback / aggiustamenti su richiesta)
+        self._followup_ready                = False
 
         # stato del renderer di output (ragionamento multi-riga)
         self._thought_buffer: list[str]     = []
@@ -439,9 +441,10 @@ class MainWindow(QMainWindow):
             "contenuti": "Cartella di cui capire i contenuti (Invio = cartella corrente)",
             "immagini":  "Cartella di immagini da ordinare per significato (Invio = corrente)",
             "backup":    "Cartella di cui fare backup (Invio = cartella corrente)",
-            "annulla":   "Invio = annulla l'ultima operazione · numero = quante annullarne",
         }
         self._input.setPlaceholderText(prompts.get(action_id, "..."))
+        # cambiare azione esce dalla modalità follow-up conversazionale
+        self._followup_ready = False
         self._input.setFocus()
 
     def _pick_folder(self) -> None:
@@ -760,7 +763,9 @@ class MainWindow(QMainWindow):
             return (
                 f"Analizza la cartella '{target}': usa prima scansione_intelligente, "
                 f"poi proponi un piano di organizzazione con sottocartelle per tipo, "
-                f"aspetta conferma e poi esegui. Riassumi alla fine."
+                f"aspetta conferma e poi esegui. Riassumi alla fine e ricorda "
+                f"all'utente che può chiederti di annullare tutto (rollback) o di "
+                f"modificare la disposizione semplicemente scrivendotelo."
             )
 
         if a == "cerca":
@@ -809,15 +814,6 @@ class MainWindow(QMainWindow):
                 f"riepiloga numero file e dimensione."
             )
 
-        if a == "annulla":
-            quante = raw.strip()
-            n = quante if quante.isdigit() else "1"
-            return (
-                f"Mostra prima la cronologia con mostra_cronologia, poi annulla "
-                f"le ultime {n} operazioni eseguite con annulla_ultima_operazione "
-                f"(quante={n}) e riepiloga cosa è stato ripristinato."
-            )
-
         return raw
 
     def _on_send(self) -> None:
@@ -830,6 +826,18 @@ class MainWindow(QMainWindow):
             return
 
         raw = self._input.text().strip()
+
+        # follow-up conversazionale: appena conclusa un'operazione di modifica
+        # l'utente può chiedere un rollback o un aggiustamento in linguaggio
+        # naturale. Lo inoltriamo così com'è all'agente, in modalità operativa
+        # (non sola lettura), così può davvero annullare o ritoccare.
+        if self._followup_ready and raw:
+            self._followup_ready = False
+            self._input.clear()
+            self._user_bubble(raw)
+            self._start_worker(raw, solo_lettura=False)
+            return
+
         if not raw and self._current_action == "chat":
             return
 
@@ -838,7 +846,7 @@ class MainWindow(QMainWindow):
         self._user_bubble(raw or f"({self._current_action} su {self._folder_short()})")
         self._start_worker(prompt)
 
-    def _start_worker(self, prompt: str) -> None:
+    def _start_worker(self, prompt: str, solo_lettura: bool | None = None) -> None:
         self._running_action = self._current_action
         self._thought_buffer = []
         self._in_thought     = False
@@ -856,7 +864,8 @@ class MainWindow(QMainWindow):
             prompt=prompt,
             model_spec=self.cfg["modello"],
             max_steps=int(self.cfg.get("max_steps", 60)),
-            solo_lettura=(self._running_action == "chat"),
+            solo_lettura=(self._running_action == "chat") if solo_lettura is None
+                         else solo_lettura,
         )
         self._worker.moveToThread(self._thread)
 
@@ -884,8 +893,13 @@ class MainWindow(QMainWindow):
             self._info("L'agente ha terminato senza una risposta testuale.")
         self._status_label.setText("Pronto")
         # apertura automatica della cartella per azioni che la modificano
-        if self._running_action in ("organizza", "backup", "immagini", "annulla"):
+        if self._running_action in ("organizza", "backup", "immagini"):
             self._apri_cartella_output()
+            # abilita il follow-up: il prossimo messaggio libero diventa una
+            # richiesta diretta all'agente (rollback o modifiche su richiesta)
+            self._followup_ready = True
+            self._info("💡 Vuoi annullare tutto (rollback) o cambiare qualcosa? "
+                       "Scrivimelo qui sotto e procedo.")
 
     def _on_failed(self, err: str) -> None:
         self._flush_thought()
