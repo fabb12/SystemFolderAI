@@ -69,6 +69,9 @@ PROCEDURA per organizzare:
 4. (opzionale) trova_duplicati → identifica sprechi
 5. Proponi il piano con percorsi esatti e scrivi "Procedo con il piano?"
 6. Dopo conferma → esegui con sposta_per_estensione / sposta_file
+7. A fine operazione riepiloga cosa hai fatto e ricorda all'utente che può
+   chiederti di annullare tutto (rollback con annulla_ultima_operazione) oppure
+   di modificare la disposizione: basta che te lo chieda in linguaggio naturale.
 
 REGOLE:
 - NON usare wildcard (*.pdf) nei percorsi — usa sposta_per_estensione
@@ -79,7 +82,9 @@ REGOLE:
   .dll/dati, o un eseguibile insieme a file di supporto), NON dividere i suoi
   file per tipo: lasciali TUTTI INSIEME o l'app si rompe. Controlla con
   rileva_app_portable ed escludi quelle cartelle dal piano.
-- Per annullare operazioni fatte usa annulla_ultima_operazione (rollback).
+- Se l'utente ti chiede di annullare, tornare indietro o disfare quanto fatto,
+  usa annulla_ultima_operazione (rollback). Non serve un comando dedicato: lo
+  attivi tu su semplice richiesta in linguaggio naturale.
 - Rispondi in italiano
 - Dopo la conferma, DEVI usare i tool chiamandoli effettivamente. Non limitarti a dire di averlo fatto.
 """
@@ -95,8 +100,9 @@ MODALITÀ CHAT LIBERA — SOLO INFORMAZIONI:
   leggi_file, analisi varie, scansione, salute, duplicati).
 - Se l'utente chiede un'azione che modifica i file, NON eseguirla: spiega cosa
   comporterebbe e rimandalo alla funzionalità dedicata (es. l'azione
-  "Organizza", "Backup", "Immagini" o "Annulla" nella barra laterale, oppure i
-  comandi CLI 'organizza', 'crea', 'chiedi', 'annulla').
+  "Organizza", "Backup" o "Immagini" nella barra laterale, oppure i comandi CLI
+  'organizza', 'crea', 'chiedi'). Lì, a operazione conclusa, potrà chiedere un
+  rollback o delle modifiche semplicemente scrivendolo.
 """
 
 
@@ -374,9 +380,10 @@ def run_agente(domanda: str, backend, solo_lettura: bool = False) -> str:
                 risultato = (
                     "ℹ️  In chat libera non eseguo operazioni di modifica. "
                     "Posso solo darti informazioni. Per eseguire questa azione usa "
-                    "la funzionalità dedicata (Organizza, Backup, Immagini o Annulla "
-                    "nella barra laterale; oppure i comandi CLI 'organizza', 'crea', "
-                    "'chiedi', 'annulla')."
+                    "la funzionalità dedicata (Organizza, Backup o Immagini nella "
+                    "barra laterale; oppure i comandi CLI 'organizza', 'crea', "
+                    "'chiedi'). A operazione conclusa potrai chiedere un rollback "
+                    "o delle modifiche semplicemente scrivendolo."
                 )
             else:
                 risultato = registry.esegui(nome, argomenti)
